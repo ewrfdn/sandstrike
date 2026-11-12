@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Local scratch, probe scripts and logs
+.scratch/
+*.log
+
+# QA / probe artifacts (README screenshots are explicitly kept below)
+shots/*
+!shots/01-menu.png
+!shots/02-gameplay.png
+!shots/03-action.png
+!shots/04-victory.png
+!shots/05-death.png
+!shots/06-menu-720.png
+!shots/07-gameplay-720.png
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
