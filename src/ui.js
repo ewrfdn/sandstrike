@@ -247,6 +247,7 @@ export class UI {
         mag: 30, magSize: 30, reserve: 300, reloading: false, reloadProgress: 0,
         weaponName: 'VXR-7 突击步枪', ads: false, sprinting: false, alive: true,
         damageMultiplier: 1, magExtension: 0, reloadBonus: 0,
+        damageReduction: 0, healthBonus: 0,
       },
       wave: { current: 1, total: 15, remaining: 0, label: '', count: 0, initialCount: 0, killed: 0, cleared: 0 },
       score: { score: 0, combo: 0, multiplier: 1 },
@@ -662,18 +663,19 @@ export class UI {
             <div class="vital">
               <div class="vital-head">
                 <span class="vital-ico">✚</span><span class="vital-name">VITALS</span><em>生命</em>
-                <span class="vital-num" data-health>100</span>
+                <span class="vital-num" data-health>100</span><span class="vital-max" data-health-max>/100</span>
               </div>
               <div class="vital-seg" data-health-seg></div>
             </div>
             <div class="vital vital--armor">
               <div class="vital-head">
                 <span class="vital-ico">◈</span><span class="vital-name">ARMOR</span><em>护甲</em>
-                <span class="vital-num" data-armor>100</span>
+                <span class="vital-num" data-armor>100</span><span class="vital-max" data-armor-max>/100</span>
               </div>
               <div class="vital-seg" data-armor-seg></div>
             </div>
             <div class="vital-status"><span class="status-dot"></span><span data-health-state>COMBAT READY</span><em>状态正常</em></div>
+            <div class="vital-buffs" data-vital-buffs></div>
           </div>
         </div>
 
@@ -944,9 +946,12 @@ export class UI {
       wavePips: q('[data-wave-pips]'),
       health: q('[data-health]'),
       armor: q('[data-armor]'),
+      healthMax: q('[data-health-max]'),
+      armorMax: q('[data-armor-max]'),
       healthSeg: q('[data-health-seg]'),
       armorSeg: q('[data-armor-seg]'),
       healthState: q('[data-health-state]'),
+      vitalBuffs: q('[data-vital-buffs]'),
       bearing: q('[data-bearing]'),
       radarHostiles: q('[data-radar-hostiles]'),
       radarRange: q('[data-radar-range]'),
@@ -1367,6 +1372,10 @@ export class UI {
     if (detail.reloadBonus !== undefined) stats.reloadBonus = clamp(num(detail.reloadBonus, stats.reloadBonus ?? 0), 0, 0.85);
     if (detail.difficulty === 'standard' || detail.difficulty === 'hardcore') stats.difficulty = detail.difficulty;
     if (detail.maxArmor !== undefined) stats.maxArmor = clamp(num(detail.maxArmor, stats.maxArmor), 1, 999);
+    if (detail.damageReduction !== undefined) {
+      stats.damageReduction = clamp(num(detail.damageReduction, stats.damageReduction ?? 0), 0, 0.9);
+    }
+    if (detail.healthBonus !== undefined) stats.healthBonus = clamp(num(detail.healthBonus, stats.healthBonus ?? 0), 0, 9999);
     if (this.built) {
       this._renderVitals();
       this._renderAmmo();
@@ -1634,8 +1643,19 @@ export class UI {
     const armorPct = stats.maxArmor > 0 ? stats.armor / stats.maxArmor : 0;
     if (this.refs.health) this.refs.health.textContent = String(Math.round(stats.health));
     if (this.refs.armor) this.refs.armor.textContent = String(Math.round(stats.armor));
+    if (this.refs.healthMax) this.refs.healthMax.textContent = `/${Math.round(stats.maxHealth)}`;
+    if (this.refs.armorMax) this.refs.armorMax.textContent = `/${Math.round(stats.maxArmor)}`;
     this._fillSegments(this.refs.healthSeg, healthPct);
     this._fillSegments(this.refs.armorSeg, armorPct);
+    if (this.refs.vitalBuffs) {
+      const parts = [];
+      const dr = Math.round(clamp01(stats.damageReduction ?? 0) * 100);
+      const hp = Math.round(stats.healthBonus ?? 0);
+      if (dr > 0) parts.push(`DR -${dr}%`);
+      if (hp > 0) parts.push(`HP +${hp}`);
+      this.refs.vitalBuffs.textContent = parts.join('  //  ');
+      this.refs.vitalBuffs.classList.toggle('is-on', parts.length > 0);
+    }
     const low = stats.alive && healthPct <= 0.35;
     const critical = stats.alive && healthPct <= 0.18;
     const root = this.root;
@@ -2069,6 +2089,7 @@ export class UI {
       mag: 30, magSize: 30, reserve: 300, reloading: false, reloadProgress: 0,
       weaponName: 'VXR-7 突击步枪', ads: false, sprinting: false, alive: true,
       damageMultiplier: 1, magExtension: 0, reloadBonus: 0,
+      damageReduction: 0, healthBonus: 0,
     };
     this._data.wave = { current: 1, total: 15, remaining: 0, label: '', count: 0, initialCount: 0, killed: 0, cleared: 0 };
     this._data.score = { score: 0, combo: 0, multiplier: 1 };

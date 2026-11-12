@@ -1287,6 +1287,20 @@ body.ui-ready #boot {
   text-shadow: 0 0 14px rgba(124, 231, 255, 0.25);
 }
 
+/* "/max" ceiling readout — reveals relic / vital-core upgrades at a glance. */
+.vital-max {
+  margin-left: 2px;
+  font-family: var(--font-mono);
+  font-size: clamp(9px, 0.72vw, 11px);
+  font-weight: 600;
+  color: var(--sand-3);
+  letter-spacing: 0.02em;
+}
+
+.vital--armor .vital-max {
+  color: rgba(124, 231, 255, 0.45);
+}
+
 .vital-seg {
   display: grid;
   grid-template-columns: repeat(20, 1fr);
@@ -1351,6 +1365,25 @@ body.ui-ready #boot {
   letter-spacing: 0.06em;
   color: var(--sand-3);
   margin-left: 2px;
+}
+
+/* Loot buffs: damage reduction + raised health ceiling (shield / vital core). */
+.vital-buffs {
+  display: none;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  color: var(--cyan-2);
+  text-align: right;
+  white-space: nowrap;
+  text-shadow: 0 0 10px rgba(124, 231, 255, 0.3);
+}
+
+.vital-buffs.is-on {
+  display: block;
 }
 
 .status-dot {
@@ -1910,6 +1943,23 @@ body.ui-ready #boot {
 .notice--loot .notice-text {
   color: var(--sand-0);
   letter-spacing: 0.08em;
+}
+
+/* Defensive loot pickups: shield module (cyan) / vital core (green). */
+.notice--guard {
+  border-left-color: var(--cyan);
+}
+
+.notice--guard .notice-tag {
+  background: linear-gradient(180deg, var(--cyan-2), var(--cyan));
+}
+
+.notice--vital {
+  border-left-color: var(--green);
+}
+
+.notice--vital .notice-tag {
+  background: linear-gradient(180deg, #c6ff8a, var(--green));
 }
 
 @keyframes noticeIn {

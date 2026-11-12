@@ -60,6 +60,10 @@ function loadCarried() {
     return {
       weapon: data.weapon && typeof data.weapon === 'object' ? data.weapon : null,
       armorBonus: Number.isFinite(data.armorBonus) ? Math.max(0, Math.min(300, data.armorBonus)) : 0,
+      healthBonus: Number.isFinite(data.healthBonus) ? Math.max(0, Math.min(CONFIG.loot?.maxHealthBonusCap ?? 300, data.healthBonus)) : 0,
+      damageReduction: Number.isFinite(data.damageReduction)
+        ? THREE.MathUtils.clamp(data.damageReduction, 0, CONFIG.loot?.damageReductionCap ?? 0.6)
+        : 0,
     };
   } catch {
     return null;
@@ -172,6 +176,8 @@ let menuAngle = 2.4;
 let deathStartRoll = 0;
 const renderDebug = { frames: 0, weaponRenders: 0, weaponActive: 0, errors: [] };
 window.__renderDebug = renderDebug;
+/** QA photo mode: render the scene straight to the canvas (no bloom/grade). */
+let qaRawRender = false;
 const menuLook = new THREE.Vector3(-1, 2.2, -6);
 const listenerPos = new THREE.Vector3();
 const listenerForward = new THREE.Vector3();
@@ -295,6 +301,10 @@ on('pickup:collected', (detail = {}) => {
     player?.grantRelic?.(detail.amount ?? 50);
     weapon.addAmmo(120);
     emit('weapon:notice', { text: '生命与护甲已回满 // FULLY RESTORED', type: 'info' });
+  } else if (detail.kind === 'guard') {
+    player?.addDamageReduction?.(detail.amount ?? CONFIG.loot?.guardReduction ?? 0.05);
+  } else if (detail.kind === 'vital') {
+    player?.grantMaxHealth?.(detail.amount ?? CONFIG.loot?.vitalHealthGain ?? 0.1);
   }
   emit('player:stats', buildStats());
 });
@@ -366,14 +376,20 @@ function startRun() {
   weapon.reset();
   weapon.resetUpgrades();
   player.resetArmorCap?.(CONFIG.player.maxArmor);
+  player.resetMaxHealthCap?.(CONFIG.player.maxHealth);
+  player.resetDamageReduction?.();
   // Standard mode: loot earned in a previous run survives death.
   if (currentDifficulty === 'standard' && carriedUpgrades) {
     weapon.importUpgrades(carriedUpgrades.weapon);
     player.applyArmorBonus?.(carriedUpgrades.armorBonus, CONFIG.player.maxArmor);
+    player.applyMaxHealthBonus?.(carriedUpgrades.healthBonus, CONFIG.player.maxHealth);
+    player.setDamageReduction?.(carriedUpgrades.damageReduction);
     const hasBonus = (carriedUpgrades.weapon?.magExtension || 0) > 0
       || (carriedUpgrades.weapon?.damageMultiplier || 1) > 1
       || (carriedUpgrades.weapon?.reloadSpeedMul || 1) < 1
-      || (carriedUpgrades.armorBonus || 0) > 0;
+      || (carriedUpgrades.armorBonus || 0) > 0
+      || (carriedUpgrades.healthBonus || 0) > 0
+      || (carriedUpgrades.damageReduction || 0) > 0;
     if (hasBonus) emit('weapon:notice', { text: '标准模式：已有强化保留 // UPGRADES CARRIED', type: 'info' });
   }
   weapon.setActive(true);
@@ -437,6 +453,8 @@ function captureCarriedUpgrades() {
   carriedUpgrades = {
     weapon: weapon.exportUpgrades(),
     armorBonus: Math.max(0, Math.round((player.maxArmor ?? CONFIG.player.maxArmor) - CONFIG.player.maxArmor)),
+    healthBonus: Math.max(0, Math.round((player.maxHealth ?? CONFIG.player.maxHealth) - CONFIG.player.maxHealth)),
+    damageReduction: Math.round((player.damageReduction || 0) * 10000) / 10000,
   };
   saveCarried(carriedUpgrades);
 }
@@ -506,6 +524,8 @@ function buildStats() {
     reloadBonus: w.reloadBonus ?? 0,
     difficulty: currentDifficulty,
     maxArmor: Math.ceil(player?.maxArmor ?? CONFIG.player.maxArmor),
+    healthBonus: Math.max(0, Math.round((player?.maxHealth ?? CONFIG.player.maxHealth) - CONFIG.player.maxHealth)),
+    damageReduction: player?.damageReduction ?? 0,
   };
 }
 
@@ -613,8 +633,15 @@ function animate(now) {
     // QA / photo mode: keep presenting the current frame without advancing
     // the simulation (transient VFX would otherwise smear across captures).
     lastFrame = now;
-    try { postfx.render(0.016); } catch (error) { console.error('PostFX render error', error); }
-    try { weapon.render(renderer); renderDebug.weaponRenders++; } catch (error) { renderDebug.errors.push(String(error)); }
+    if (qaRawRender) {
+      try {
+        renderer.setRenderTarget(null);
+        renderer.render(scene, camera);
+      } catch (error) { console.error('QA raw render error', error); }
+    } else {
+      try { postfx.render(0.016); } catch (error) { console.error('PostFX render error', error); }
+      try { weapon.render(renderer); renderDebug.weaponRenders++; } catch (error) { renderDebug.errors.push(String(error)); }
+    }
     renderDebug.frames++;
     return;
   }
@@ -930,6 +957,48 @@ async function boot() {
       },
       get frozen() { return renderDebug.frozen; },
       get state() { return game.state; },
+      /* ---- QA photo-mode helpers (model / map audits) ---- */
+      THREE,
+      setCamera({ pos = [0, 1.7, 0], target = [0, 1.7, -1], fov = 60, roll = 0 } = {}) {
+        camera.position.set(pos[0], pos[1], pos[2]);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(target[0], target[1], target[2]);
+        camera.fov = fov;
+        camera.rotation.z = roll;
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        return { pos: camera.position.toArray(), fov: camera.fov };
+      },
+      renderFrame() {
+        try {
+          if (qaRawRender) {
+            renderer.setRenderTarget(null);
+            renderer.render(scene, camera);
+          } else {
+            postfx.render(0.016);
+          }
+        } catch (error) { console.error('QA renderFrame', error); }
+        renderer.info.reset();
+        renderDebug.frames++;
+        return { frames: renderDebug.frames };
+      },
+      hideUI(hide = true) {
+        const mount = document.getElementById('ui');
+        const boot = document.getElementById('boot');
+        if (mount) mount.style.display = hide ? 'none' : '';
+        if (boot) boot.style.display = hide ? 'none' : '';
+        return hide;
+      },
+      showUI() {
+        const mount = document.getElementById('ui');
+        const boot = document.getElementById('boot');
+        if (mount) mount.style.display = '';
+        if (boot) boot.style.display = '';
+      },
+      setPostfxEnabled(enabled = true) {
+        qaRawRender = !enabled;
+        return { postfx: !qaRawRender };
+      },
     };
     window.__sandstrike.godMode = (enabled = true) => { player.godMode = enabled; };
     console.info('[SANDSTRIKE] dev hooks ready: window.__sandstrike');

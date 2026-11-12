@@ -57,6 +57,20 @@ export const CONFIG = Object.freeze({
     firstDelay: 2.2,
     total: 15,
   },
+  /**
+   * Loot rolls are independent of the regular ammo/health drop table:
+   * every destroyed robot rolls each chance once.
+   */
+  loot: {
+    relicChance: 0.01,          // golden relic: full health+armor, +50 armor cap (rare)
+    guardChance: 0.10,          // shield module: +5% incoming-damage reduction per pickup
+    vitalChance: 0.05,          // vital core: +10% max health per pickup
+    guardReduction: 0.05,
+    vitalHealthGain: 0.10,
+    damageReductionCap: 0.60,
+    maxHealthCap: 500,
+    maxHealthBonusCap: 300,     // persistence clamp (standard mode redeploy)
+  },
   colors: {
     sand: 0xc99a62,
     accent: 0xff8a3c,

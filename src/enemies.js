@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SANDSTRIKE // 沙暴协议
  * src/enemies.js — hostile robot chassis, squad AI, combat and the fifteen-wave director.
  *
@@ -33,6 +33,8 @@ const BETWEEN_TIME = (CONFIG.waves && CONFIG.waves.betweenTime) || 6.5;
 const FIRST_DELAY = (CONFIG.waves && CONFIG.waves.firstDelay) || 2.2;
 const HEADSHOT_MULT = (CONFIG.weapon && CONFIG.weapon.headshotMultiplier) || 2.3;
 const LIMB_MULT = (CONFIG.weapon && CONFIG.weapon.limbMultiplier) || 0.72;
+/** Independent bonus-drop table (chances/effects live in config.js). */
+const LOOT = CONFIG.loot || {};
 
 const IS_DEV = (() => {
   try {
@@ -845,10 +847,15 @@ function buildTorso(b, M, def) {
   }
 
   if (key === 'scout') {
-    // high angular shoulder fins, single-boom sensor mast
+    // high angular shoulder fins, single-boom sensor mast.  The fins lean
+    // outboard-down and their lower end used to hang in the air ~4 cm outboard
+    // of the shoulder plate (blue-backdrop pass showed the gap); they are
+    // pulled 0.04cw inboard and mounted on a small dark bracket that bridges the
+    // shoulder armour to the fin root.
     for (const side of [-1, 1]) {
-      b.box('armor', 0.035, ch * 0.36, cd * 0.36, side * (M.shoulderX + cw * 0.2), M.shoulderY + ch * 0.34, 0.02, 0, 0, side * 0.55);
-      b.box('trim', 0.02, ch * 0.2, cd * 0.2, side * (M.shoulderX + cw * 0.26), M.shoulderY + ch * 0.5, 0.02, 0, 0, side * 0.55);
+      b.box('armor', 0.035, ch * 0.36, cd * 0.36, side * (M.shoulderX + cw * 0.16), M.shoulderY + ch * 0.34, 0.02, 0, 0, side * 0.55);
+      b.box('trim', 0.02, ch * 0.2, cd * 0.2, side * (M.shoulderX + cw * 0.22), M.shoulderY + ch * 0.5, 0.02, 0, 0, side * 0.55);
+      b.box('dark', cw * 0.16, ch * 0.2, cd * 0.36, side * (M.shoulderX + cw * 0.25), M.shoulderY + ch * 0.16, 0.02);
     }
     b.beam('trim', cw * 0.22, cy + ch * 0.34, cd * 0.4, cw * 0.3, cy + ch * 0.56, cd * 0.62, 0.014);
     b.sphere('core', 0.022, cw * 0.3, cy + ch * 0.56, cd * 0.62);
@@ -877,13 +884,19 @@ function buildTorso(b, M, def) {
     }
     b.box('trim', cw * 0.6, ch * 0.08, cd * 0.24, 0, cy - ch * 0.4, -cd * 0.28);
   } else if (key === 'warlord') {
-    // shoulder towers with reactor lights, gold trim, rear cape plates
+    // shoulder towers with reactor lights, gold trim, rear cape plates.
+    // The towers used to sit at +0.46ch, which left their underside ~3.5 cm
+    // above the chest top plate / shoulder armour and fully outboard of both
+    // (blue-backdrop test showed the scene through the gap).  They are lowered
+    // by 0.06ch so the tower underside is embedded in the shoulder mass; the
+    // cap / core light / horn beams move down with them so the assembly stays
+    // rigid.
     for (const side of [-1, 1]) {
-      b.box('armor', cw * 0.3, ch * 0.44, cd * 0.72, side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.46, 0.03, 0, 0, side * -0.1);
-      b.box('trim', cw * 0.32, ch * 0.08, cd * 0.76, side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.69, 0.03);
-      b.box('core', cw * 0.12, ch * 0.12, 0.03, side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.5, -cd * 0.4);
-      b.beam('trim', side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.7, -cd * 0.1, side * (M.shoulderX + cw * 0.16), M.shoulderY + ch * 1.0, -cd * 0.24, 0.022);
-      b.sphere('core', 0.035, side * (M.shoulderX + cw * 0.16), M.shoulderY + ch * 1.0, -cd * 0.24);
+      b.box('armor', cw * 0.3, ch * 0.44, cd * 0.72, side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.4, 0.03, 0, 0, side * -0.1);
+      b.box('trim', cw * 0.32, ch * 0.08, cd * 0.76, side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.63, 0.03);
+      b.box('core', cw * 0.12, ch * 0.12, 0.03, side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.44, -cd * 0.4);
+      b.beam('trim', side * (M.shoulderX + cw * 0.06), M.shoulderY + ch * 0.64, -cd * 0.1, side * (M.shoulderX + cw * 0.16), M.shoulderY + ch * 0.94, -cd * 0.24, 0.022);
+      b.sphere('core', 0.035, side * (M.shoulderX + cw * 0.16), M.shoulderY + ch * 0.94, -cd * 0.24);
     }
     b.cyl('trim', cw * 0.21, 0.05, 0, cy + ch * 0.08, -cd * 0.57, Math.PI / 2, 0, 0);
     b.sphere('core', cw * 0.11, 0, cy + ch * 0.08, -cd * 0.61);
@@ -905,9 +918,12 @@ function buildHead(b, M, def) {
   b.box('armor', w, h * 0.62, d, 0, y + h * 0.18, 0);
   b.box('armor', w * 0.88, h * 0.28, d * 1.08, 0, y + h * 0.46, -d * 0.02, 0.08, 0, 0);
   b.box('armor', w * 0.82, h * 0.32, d * 0.92, 0, y - h * 0.42, 0.01, -0.06, 0, 0);
-  // visor recess + emissive slit
+  // visor recess + emissive slit.  The recess is a solid dark box whose front
+  // face sits at -0.52d-0.03, so the slit has to be placed PROUD of that face
+  // (5 mm) or it is buried inside the recess and the heads read as a black band
+  // from every angle (verified on the model stage, flat-body pass).
   b.box('dark', w * 0.92, h * 0.3, 0.06, 0, y + h * 0.02, -d * 0.52);
-  b.box('visor', w * 0.74, h * 0.12, 0.032, 0, y + h * 0.02, -d * 0.56);
+  b.box('visor', w * 0.74, h * 0.12, 0.032, 0, y + h * 0.02, -d * 0.52 - 0.019);
   for (const side of [-1, 1]) {
     b.box('dark', w * 0.12, h * 0.18, d * 0.4, side * (w * 0.53), y, -d * 0.05);
   }
@@ -963,7 +979,11 @@ function buildArm(b, M, def, side) {
   const midZ = (handZ + 0) * 0.5;
   b.boxDir('armor', aw * 1.05, aw * 1.2, M.armFore * 1.05, 0, midY, midZ, 0, -dirY, -dirZ);
   b.boxDir('dark', aw * 0.62, aw * 0.72, M.armFore * 0.72, 0, midY + aw * 0.1, midZ - aw * 0.1, 0, -dirY, -dirZ);
-  b.beam('trim', aw * 0.86, elbowY * 0.4, aw * 0.2, aw * 0.86, midY, midZ + aw * 0.42, 0.016);
+  // arm "piston" trim rod: it used to sit at a fixed +x*0.86aw, floating
+  // 1.2 cm (scout) to 5.5 cm (warlord) outside the arm and sitting inboard on
+  // the left arm.  Clamp it to the outer face of the upper arm (0.6aw, mirrored
+  // per side) and scale its radius with the chassis so it stays on the arm.
+  b.beam('trim', side * aw * 0.6, elbowY * 0.4, aw * 0.2, side * aw * 0.6, midY, midZ + aw * 0.42, 0.016 * (aw / 0.1));
   b.box('dark', aw * 1.2, aw * 1.05, aw * 1.3, 0, handY - aw * 0.3, handZ);
   b.boxDir('armor', 0.05, aw * 0.9, M.armFore * 0.82, side * (aw * 0.62), midY, midZ, 0, -dirY, -dirZ);
 
@@ -1142,13 +1162,58 @@ function buildRobotRig(def, rigMats, geos, hitGeo, hitMat) {
   addHit('head', head, M.headW * 1.1, M.headH * 1.25, M.headD * 1.12, 0, M.headY, 0);
   addHit('torso', torso, M.chestW * 1.02, M.chestH * 0.9, M.chestD * 1.14, 0, M.chestY, 0);
   addHit('limb', pelvis, M.pelvisW * 1.12, M.pelvisH * 1.7, M.pelvisD * 1.16, 0, 0, 0);
-  const armLen = M.armUpper + M.armFore * 0.9;
-  const armHitY = -(M.armUpper * 0.5 + M.armFore * 0.4);
-  addHit('limb', armL, M.armW * 1.6, armLen, M.armW * 1.6, 0, armHitY, -M.armFore * 0.2);
-  addHit('limb', armR, M.armW * 1.6, armLen, M.armW * 1.6, 0, armHitY, -M.armFore * 0.2);
+
+  // Arms: the original single vertical slab stopped at the elbow, so the bent
+  // forearm, hand and grips hung outside it and side shots at the extended arm
+  // missed (D8).  Keep the slab for the upper arm, add an axis-aligned volume
+  // around the elbow→hand segment (one arm width of padding, still 'limb').
+  const addArmHit = (parent, bend) => {
+    const elbowY = -M.armUpper;
+    const handY = elbowY - Math.cos(bend) * M.armFore;
+    const handZ = -Math.sin(bend) * M.armFore;
+    const armLen = M.armUpper + M.armFore * 0.9;
+    const armHitY = -(M.armUpper * 0.5 + M.armFore * 0.4);
+    addHit('limb', parent, M.armW * 1.6, armLen, M.armW * 1.6, 0, armHitY, -M.armFore * 0.2);
+    addHit('limb', parent, M.armW * 1.6,
+      Math.abs(handY - elbowY) + M.armW * 2.0,
+      Math.abs(handZ) + M.armW * 1.4,
+      0, (elbowY + handY) * 0.5, handZ * 0.5);
+  };
+  addArmHit(armL, M.armBendL);
+  addArmHit(armR, M.armBendR);
+
+  // Legs: the slab only spans hip→ankle, leaving the 14-22 cm boots outside it
+  // (D7).  One foot volume per leg rides the leg pivot and stays 'limb'.
   const legLen = M.legThigh + M.legShin;
+  const footHitY = -M.hipY + M.footH * 0.5;
+  const footHitZ = -M.footL * 0.2;
   addHit('limb', legL, M.legW * 1.55, legLen, M.legW * 1.7, 0, -legLen * 0.5, 0);
   addHit('limb', legR, M.legW * 1.55, legLen, M.legW * 1.7, 0, -legLen * 0.5, 0);
+  addHit('limb', legL, M.footW * 1.2, M.footH * 1.6, M.footL * 1.15, 0, footHitY, footHitZ);
+  addHit('limb', legR, M.footW * 1.2, M.footH * 1.6, M.footL * 1.15, 0, footHitY, footHitZ);
+
+  // Shoulder-mounted hardpoints sit outside the torso slab, so shots at them
+  // used to pass straight through (D4).  Give each pod/tower its own torso-zone
+  // volume; sizes are measured from the buildTorso() geometry with a small
+  // margin and overlap the torso slab so there is no seam.
+  if (def.key === 'heavy') {
+    for (const side of [-1, 1]) {
+      addHit('torso', torso,
+        M.chestW * 0.34, M.chestH * 0.4, M.chestD * 0.78,
+        side * (M.shoulderX + M.chestW * 0.1), M.shoulderY + M.chestH * 0.28, 0.04);
+    }
+  } else if (def.key === 'warlord') {
+    for (const side of [-1, 1]) {
+      addHit('torso', torso,
+        M.chestW * 0.34, M.chestH * 0.54, M.chestD * 0.8,
+        side * (M.shoulderX + M.chestW * 0.06), M.shoulderY + M.chestH * 0.44, 0.03);
+    }
+  } else if (def.key === 'rifleman') {
+    // backpack ammo drum: compact solid volume, torso zone like the backpack
+    addHit('torso', torso,
+      M.chestW * 0.4, M.chestH * 0.32, M.chestD * 0.55,
+      0, M.chestY + M.chestH * 0.04, M.chestD * 0.72);
+  }
 
   return {
     def,
@@ -3201,6 +3266,15 @@ class EnemyManager {
       relicRingA: new THREE.TorusGeometry(0.3, 0.022, 8, 24),
       relicRingB: new THREE.TorusGeometry(0.24, 0.016, 8, 20),
       relicBeam: new THREE.CylinderGeometry(0.05, 0.16, 1.6, 10, 1, true),
+      // damage-reduction guard: hexagonal shield plate + glowing core + halo
+      guardPlate: new THREE.CylinderGeometry(0.27, 0.31, 0.06, 6),
+      guardCore: new THREE.IcosahedronGeometry(0.11, 0),
+      guardRing: new THREE.TorusGeometry(0.33, 0.02, 6, 20),
+      // max-health vital core: green orb inside a cross frame
+      vitalOrb: new THREE.SphereGeometry(0.15, 12, 10),
+      vitalCrossA: new THREE.BoxGeometry(0.07, 0.34, 0.07),
+      vitalCrossB: new THREE.BoxGeometry(0.34, 0.07, 0.07),
+      vitalRing: new THREE.TorusGeometry(0.28, 0.02, 6, 20),
     };
     this._pickupMats = {
       body: new THREE.MeshStandardMaterial({ color: 0x2c2b27, metalness: 0.72, roughness: 0.48 }),
@@ -3215,6 +3289,10 @@ class EnemyManager {
         color: 0xffd062, transparent: true, opacity: 0.28, side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
       }),
+      guard: new THREE.MeshBasicMaterial({ color: 0x66e2ff, toneMapped: false }),
+      guardPlate: new THREE.MeshStandardMaterial({ color: 0x27343c, metalness: 0.9, roughness: 0.28 }),
+      vital: new THREE.MeshBasicMaterial({ color: 0xa6ff5e, toneMapped: false }),
+      vitalFrame: new THREE.MeshStandardMaterial({ color: 0x2d3a24, metalness: 0.78, roughness: 0.36 }),
       powerCage: new THREE.MeshStandardMaterial({
         color: 0x40464e, metalness: 0.8, roughness: 0.35, transparent: true, opacity: 0.55,
       }),
@@ -3300,6 +3378,35 @@ class EnemyManager {
     relicBeam.position.y = 0.55;
     group.add(relicBeam);
     relicParts.push(relicBeam);
+    // --- damage-reduction guard: hex shield plate with a glowing core/halo ---
+    const guardParts = [];
+    const guardPlate = new THREE.Mesh(geos.guardPlate, mats.guardPlate);
+    guardPlate.rotation.x = Math.PI / 2;
+    group.add(guardPlate);
+    guardParts.push(guardPlate);
+    const guardCore = new THREE.Mesh(geos.guardCore, mats.guard);
+    group.add(guardCore);
+    guardParts.push(guardCore);
+    const guardRing = new THREE.Mesh(geos.guardRing, mats.guard);
+    guardRing.rotation.x = Math.PI / 2.6;
+    group.add(guardRing);
+    guardParts.push(guardRing);
+    // --- max-health vital core: green cross frame around a glowing orb ---
+    const vitalParts = [];
+    const vitalOrb = new THREE.Mesh(geos.vitalOrb, mats.vitalFrame);
+    group.add(vitalOrb);
+    vitalParts.push(vitalOrb);
+    const vitalCrossA = new THREE.Mesh(geos.vitalCrossA, mats.vital);
+    group.add(vitalCrossA);
+    vitalParts.push(vitalCrossA);
+    const vitalCrossB = new THREE.Mesh(geos.vitalCrossB, mats.vital);
+    vitalCrossB.rotation.z = Math.PI / 2;
+    group.add(vitalCrossB);
+    vitalParts.push(vitalCrossB);
+    const vitalRing = new THREE.Mesh(geos.vitalRing, mats.vital);
+    vitalRing.rotation.x = Math.PI / 2.8;
+    group.add(vitalRing);
+    vitalParts.push(vitalRing);
     group.visible = false;
     group.position.set(0, -60, 0);
     if (this.scene) this.scene.add(group);
@@ -3311,6 +3418,8 @@ class EnemyManager {
       powerMeshes: powerParts,
       reloadMeshes: reloadParts,
       relicMeshes: relicParts,
+      guardMeshes: guardParts,
+      vitalMeshes: vitalParts,
       active: false,
       kind: 'ammo',
       baseY: 0.42,
@@ -3336,11 +3445,14 @@ class EnemyManager {
     item.kind = kind;
     item.active = true;
     item.life = kind === 'relic' ? 45
-      : kind === 'mag' || kind === 'power' || kind === 'reload' ? 34 : 28;
+      : kind === 'guard' || kind === 'vital' ? 38
+        : kind === 'mag' || kind === 'power' || kind === 'reload' ? 34 : 28;
     item.bob = rand(0, TAU);
     item.spin = rand(0, TAU);
     item.baseY = kind === 'relic' ? 0.95
-      : kind === 'mag' || kind === 'power' || kind === 'reload' ? 0.55 : 0.42;
+      : kind === 'guard' ? 0.62
+        : kind === 'vital' ? 0.6
+          : kind === 'mag' || kind === 'power' || kind === 'reload' ? 0.55 : 0.42;
     item.group.position.set(x, item.baseY, z);
     item.group.rotation.y = item.spin;
     item.group.visible = true;
@@ -3349,11 +3461,15 @@ class EnemyManager {
     const showMag = kind === 'mag';
     const showPower = kind === 'power';
     const showReload = kind === 'reload';
+    const showGuard = kind === 'guard';
+    const showVital = kind === 'vital';
     for (let i = 0; i < item.ammoMeshes.length; i++) item.ammoMeshes[i].visible = showAmmo;
     for (let i = 0; i < item.healthMeshes.length; i++) item.healthMeshes[i].visible = showHealth;
     for (let i = 0; i < item.magMeshes.length; i++) item.magMeshes[i].visible = showMag;
     for (let i = 0; i < item.powerMeshes.length; i++) item.powerMeshes[i].visible = showPower;
     for (let i = 0; i < item.reloadMeshes.length; i++) item.reloadMeshes[i].visible = showReload;
+    for (let i = 0; i < item.guardMeshes.length; i++) item.guardMeshes[i].visible = showGuard;
+    for (let i = 0; i < item.vitalMeshes.length; i++) item.vitalMeshes[i].visible = showVital;
     const showRelic = kind === 'relic';
     for (let i = 0; i < item.relicMeshes.length; i++) item.relicMeshes[i].visible = showRelic;
   }
@@ -3370,10 +3486,19 @@ class EnemyManager {
     const key = robot.def.key;
     const jx = rand(-0.7, 0.7);
     const jz = rand(-0.7, 0.7);
-    // 1% chance for the rare relic, rolled independently of the normal drop
-    if (Math.random() < 0.01) {
+    // Bonus loot rolls independently of the normal drop table (see CONFIG.loot).
+    // Rare relic: 1% — restores health and armor together and raises the armor cap.
+    if (Math.random() < (LOOT.relicChance ?? 0.01)) {
       this._spawnPickup('relic', pos.x + jx * 0.4, pos.z + jz * 0.4);
       emit('weapon:notice', { text: '稀有装备已空投 // RELIC DETECTED', type: 'warn' });
+    }
+    // Shield module: 10% — each pickup cuts incoming damage by 5%.
+    if (Math.random() < (LOOT.guardChance ?? 0.1)) {
+      this._spawnPickup('guard', pos.x + rand(-1.1, 1.1), pos.z + rand(-1.1, 1.1));
+    }
+    // Vital core: 5% — each pickup raises max health by 10%.
+    if (Math.random() < (LOOT.vitalChance ?? 0.05)) {
+      this._spawnPickup('vital', pos.x + rand(-1.1, 1.1), pos.z + rand(-1.1, 1.1));
     }
     if (key === 'warlord') {
       // the boss always leaves a full care package
@@ -3414,16 +3539,27 @@ class EnemyManager {
         : kind === 'mag' ? 0x7cc8ff
           : kind === 'reload' ? 0xc084ff
             : kind === 'relic' ? 0xffe27a
-              : 0xff5a3c;
+              : kind === 'guard' ? 0x66e2ff
+                : kind === 'vital' ? 0xa6ff5e
+                  : 0xff5a3c;
+    const special = kind === 'relic' || kind === 'guard' || kind === 'vital';
     this._fx('sparks', pos, this._upVec, {
-      count: kind === 'relic' ? 28 : kind === 'mag' || kind === 'power' ? 16 : 10,
+      count: kind === 'relic' ? 28 : special ? 18 : kind === 'mag' || kind === 'power' ? 16 : 10,
       color: sparkColor,
-      speed: kind === 'relic' ? 8 : kind === 'mag' || kind === 'power' ? 6 : 4.5,
+      speed: kind === 'relic' ? 8 : special ? 6.5 : kind === 'mag' || kind === 'power' ? 6 : 4.5,
     });
     if (kind === 'relic') {
       this._fx('dustBurst', pos, { count: 16, scale: 1.6, color: 0xffe27a });
       this._flashLight(pos.x, pos.y + 0.6, pos.z, 0xffd062, 26, 0.6);
       emit('fx:shake', { intensity: 0.25, duration: 0.3 });
+    } else if (kind === 'guard') {
+      this._fx('dustBurst', pos, { count: 10, scale: 1.1, color: 0x66e2ff });
+      this._flashLight(pos.x, pos.y + 0.4, pos.z, 0x66e2ff, 16, 0.4);
+      emit('fx:shake', { intensity: 0.12, duration: 0.2 });
+    } else if (kind === 'vital') {
+      this._fx('dustBurst', pos, { count: 10, scale: 1.1, color: 0xa6ff5e });
+      this._flashLight(pos.x, pos.y + 0.4, pos.z, 0xa6ff5e, 16, 0.4);
+      emit('fx:shake', { intensity: 0.12, duration: 0.2 });
     }
     this._audio('pickup', kind);
 
@@ -3443,6 +3579,14 @@ class EnemyManager {
     } else if (kind === 'relic') {
       emit('weapon:notice', { text: '稀有装备：生命/护甲全满 +50 护甲上限 // RELIC ACQUIRED', type: 'warn', kind: 'relic' });
       emit('pickup:collected', { kind, amount: 50 });
+    } else if (kind === 'guard') {
+      const pct = Math.round((LOOT.guardReduction ?? 0.05) * 100);
+      emit('weapon:notice', { text: `+${pct}% 伤害减免 // DAMAGE GUARD`, type: 'info', kind: 'guard' });
+      emit('pickup:collected', { kind, amount: LOOT.guardReduction ?? 0.05 });
+    } else if (kind === 'vital') {
+      const pct = Math.round((LOOT.vitalHealthGain ?? 0.1) * 100);
+      emit('weapon:notice', { text: `+${pct}% 生命上限 // VITAL CORE`, type: 'info', kind: 'vital' });
+      emit('pickup:collected', { kind, amount: LOOT.vitalHealthGain ?? 0.1 });
     } else {
       emit('weapon:notice', { text: '+40 弹药储备 // AMMO CACHE', type: 'info' });
       emit('pickup:collected', { kind, amount: 40 });
@@ -3570,6 +3714,7 @@ class EnemyManager {
         jumpToWave: (n) => this.debugJumpToWave(n),
         start: () => this.start(),
         reset: () => this.reset(),
+        spawnPickup: (kind, x = 0, z = 0) => { this._spawnPickup(kind, x, z); return kind; },
         state: () => JSON.parse(JSON.stringify(this.state)),
         robots: () => this.robots.map((r) => ({
           type: r.type,
@@ -3592,3 +3737,97 @@ export { EnemyManager };
 
 
 
+
+/* ================================================================== *
+ *  DEV -- isolated chassis previews for the model stage (stage.html)
+ *  Mirrors Robot._basePose plus representative aim/walk poses so a single
+ *  chassis can be inspected on an empty platform from every angle.
+ * ================================================================== */
+
+export function createRobotPreview(typeKey) {
+  const def = ROBOT_TYPES[typeKey];
+  if (!def) throw new Error(`[stage] unknown robot type: ${typeKey}`);
+  const geos = createUnitGeos();
+  const baseMats = createRobotBaseMaterials();
+  const rigMats = createRigMaterialSet(baseMats);
+  const hitGeo = new THREE.BoxGeometry(1, 1, 1);
+  const hitMat = new THREE.MeshBasicMaterial({ color: 0xff3355 });
+  const rig = buildRobotRig(def, rigMats, geos, hitGeo, hitMat);
+  const M = def.model;
+  const p = rig.parts;
+
+  const applyPose = (name = 'base') => {
+    // neutral stand (same as Robot._basePose)
+    p.pelvis.position.set(0, M.hipY, 0);
+    p.pelvis.rotation.set(0, 0, 0);
+    p.torso.position.set(0, M.torsoPivotY, 0);
+    p.torso.rotation.set(0, 0, 0);
+    p.head.position.y = M.neckY;
+    p.head.rotation.set(0, 0, 0);
+    p.armL.rotation.set(0.05, 0, 0.06);
+    p.armR.rotation.set(0, 0, 0);
+    p.gunGroup.position.set(rig.baseGunX, rig.baseGunY, rig.baseGunZ);
+    p.gunGroup.rotation.set(0, 0, 0);
+    p.legL.position.set(-M.hipX, M.hipY, 0);
+    p.legR.position.set(M.hipX, M.hipY, 0);
+    p.legL.rotation.set(0, 0, 0);
+    p.legR.rotation.set(0, 0, 0);
+    rig.root.position.set(0, 0, 0);
+    rig.root.rotation.set(0, 0, 0);
+    rig.root.scale.setScalar(1);
+
+    if (name === 'walk') {
+      // snapshot of the walk cycle at swing = 0.78 (matches _updateAnimation's formulas)
+      const swing = 0.78;
+      const amp = 0.45;
+      p.legL.rotation.x = swing * amp;
+      p.legR.rotation.x = -swing * amp;
+      p.legL.position.y = M.hipY + 0.043;
+      p.legL.rotation.z = 0.02;
+      p.legR.rotation.z = -0.02;
+      p.torso.rotation.x = 0.055;
+      p.torso.rotation.z = swing * 0.02 * amp;
+      p.pelvis.position.y = M.hipY + 0.032;
+      p.pelvis.rotation.z = swing * 0.03 * amp;
+      p.pelvis.rotation.y = swing * 0.07 * amp;
+      p.armL.rotation.x = 0.05 - swing * amp * 0.6;
+      p.armL.rotation.z = 0.08;
+      p.armR.rotation.x = -0.05;
+    } else if (name === 'aim') {
+      // engagement stance: torso/head turned toward the target, weapon braced
+      p.torso.rotation.y = 0.4;
+      p.torso.rotation.x = -0.08;
+      p.head.rotation.y = 0.16;
+      p.head.rotation.x = -0.06;
+      p.armR.rotation.x = -0.16;
+      p.armR.rotation.z = -0.03;
+      p.armL.rotation.x = 0.12;
+      p.armL.rotation.z = 0.14;
+      p.gunGroup.position.z = rig.baseGunZ;
+    }
+    rig.root.updateMatrixWorld(true);
+  };
+
+  applyPose('base');
+
+  return {
+    type: typeKey,
+    def,
+    rig,
+    parts: p,
+    hitboxes: rig.hitboxes,
+    applyPose,
+    setHitboxesVisible(visible = true) {
+      for (let i = 0; i < rig.hitboxes.length; i++) rig.hitboxes[i].visible = !!visible;
+      return rig.hitboxes.length;
+    },
+    dispose() {
+      disposeUnitGeos(geos);
+      hitGeo.dispose();
+      hitMat.dispose();
+      rigMats.cloned.forEach((m) => m.dispose());
+      baseMats.body.dispose();
+      baseMats.glow.dispose();
+    },
+  };
+}

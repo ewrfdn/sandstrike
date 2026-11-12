@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SANDSTRIKE // MODEL STAGE</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #07090c; overflow: hidden; }
+    #stage-shell { position: fixed; inset: 0; }
+    #stage { display: block; width: 100%; height: 100%; }
+    #stage-hud {
+      position: fixed; left: 18px; top: 16px; pointer-events: none;
+      font: 12px/1.45 "Cascadia Mono", "Consolas", "Segoe UI", monospace;
+      color: #d8cbb4; text-shadow: 0 1px 3px rgba(0,0,0,.85);
+      max-width: 46vw;
+    }
+    #stage-title { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #f0dfc2; }
+    #stage-title .idx { color: #ff8a3c; }
+    #stage-meta { margin-top: 4px; color: #9c9180; white-space: pre; }
+    #stage-status {
+      position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      font: 13px/1.6 "Cascadia Mono", "Consolas", monospace; color: #cbbda4;
+      text-align: center; letter-spacing: .08em;
+    }
+    #stage-status.is-hidden { display: none; }
+    #stage-hint {
+      position: fixed; right: 16px; bottom: 14px; pointer-events: none;
+      font: 11px/1.4 "Cascadia Mono", "Consolas", monospace; color: #6f675a; text-align: right;
+    }
+    #stage-quadrants {
+      position: fixed; inset: 0; display: none; pointer-events: none;
+      grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    }
+    #stage-quadrants.is-on { display: grid; }
+    #stage-quadrants span {
+      align-self: end; justify-self: start; margin: 10px 12px 8px 14px;
+      font: 11px/1 "Cascadia Mono", "Consolas", monospace; letter-spacing: .14em;
+      color: #b9a98c; text-shadow: 0 1px 4px #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage-shell">
+    <canvas id="stage"></canvas>
+    <div id="stage-hud">
+      <div id="stage-title"><span class="idx">[--]</span> <span id="stage-name">LOADING MODEL STAGE</span></div>
+      <div id="stage-meta"></div>
+    </div>
+    <div id="stage-status">GENERATING PROCEDURAL TEXTURES…</div>
+    <div id="stage-quadrants"><span></span><span></span><span></span><span></span></div>
+    <div id="stage-hint">isolated model preview · blank space · platform · turntable</div>
+  </div>
+  <script type="module" src="./src/model-stage.js"></script>
+</body>
+</html>

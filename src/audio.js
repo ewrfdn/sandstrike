@@ -1267,7 +1267,10 @@ export class GameAudio {
 
   pickup(kind = 'ammo') {
     if (!this._canPlay()) return;
-    const bright = kind === 'health' ? 1 : kind === 'armor' ? 1.18 : 0.82;
+    const bright = kind === 'health' ? 1
+      : kind === 'vital' ? 1.32
+        : kind === 'armor' || kind === 'guard' ? 1.16
+          : kind === 'relic' ? 1.4 : 0.82;
     [880, 1174.66, 1567.98].forEach((freq, index) => {
       this._tone({
         type: 'sine', freq: freq * bright, duration: 0.16,

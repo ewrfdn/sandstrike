@@ -369,7 +369,7 @@ try {
   await page.evaluate(() => window.__sandstrike.freeze(false));
 
 
-  // Loot + difficulty pass: upgrades, rare relic, death persistence.
+  // Loot + difficulty pass: upgrades, rare relic, defensive drops, death persistence.
   const loot = await page.evaluate(() => {
     const s = window.__sandstrike;
     // Fresh run first (the wave loop ended in victory).
@@ -381,7 +381,16 @@ try {
     s.player.armor = s.player.maxArmor;
     const px = s.player.position.x;
     const pz = s.player.position.z;
-    const out = { before: { magSize: s.weapon.magSize, dmg: s.weapon.damageMultiplier, reload: s.weapon.reloadDuration, maxArmor: s.player.maxArmor } };
+    const out = {
+      before: {
+        magSize: s.weapon.magSize,
+        dmg: s.weapon.damageMultiplier,
+        reload: s.weapon.reloadDuration,
+        maxArmor: s.player.maxArmor,
+        maxHealth: s.player.maxHealth,
+        damageReduction: s.player.damageReduction,
+      },
+    };
     s.enemies._spawnPickup('mag', px, pz);
     s.fastForward(0.25);
     s.enemies._spawnPickup('power', px, pz);
@@ -405,11 +414,48 @@ try {
       maxArmor: s.player.maxArmor,
     };
 
+    // shield module (10% drop): two pickups stack to -10% incoming damage
+    s.player.health = 100;
+    s.player.armor = 100;
+    s.enemies._spawnPickup('guard', px, pz);
+    s.fastForward(0.25);
+    s.enemies._spawnPickup('guard', px, pz);
+    s.fastForward(0.25);
+    out.guard = {
+      damageReduction: +s.player.damageReduction.toFixed(3),
+      hud: document.querySelector('[data-vital-buffs]')?.textContent ?? '',
+    };
+    // 50 raw damage with -10% mitigation: 45 total, armor soaks 64% (28.8), health loses 16.2.
+    s.player.godMode = false;
+    s.player.health = 100;
+    s.player.armor = 100;
+    s.damagePlayer(50);
+    out.guard.hit = {
+      health: +s.player.health.toFixed(2),
+      armor: +s.player.armor.toFixed(2),
+    };
+    s.player.godMode = true;
+
+    // vital core (5% drop): +10% max health and heals the gained amount
+    s.player.health = 40;
+    const maxBefore = s.player.maxHealth;
+    s.enemies._spawnPickup('vital', px, pz);
+    s.fastForward(0.25);
+    out.vital = {
+      before: maxBefore,
+      maxHealth: s.player.maxHealth,
+      health: Math.round(s.player.health),
+      hud: document.querySelector('[data-vital-buffs]')?.textContent ?? '',
+      healthMaxHud: document.querySelector('[data-health-max]')?.textContent ?? '',
+    };
+
     const snapshot = () => ({
       magSize: s.weapon.magSize,
       dmg: +s.weapon.damageMultiplier.toFixed(3),
       reload: +s.weapon.reloadDuration.toFixed(3),
       maxArmor: s.player.maxArmor,
+      maxHealth: s.player.maxHealth,
+      damageReduction: +s.player.damageReduction.toFixed(3),
     });
     const dieAndRedeploy = (difficulty) => {
       s.bus.dispatchEvent(new CustomEvent('ui:settings', { detail: { difficulty } }));
@@ -425,7 +471,7 @@ try {
 
     // standard: upgrades survive death + redeploy
     out.standardAfterDeath = dieAndRedeploy('standard');
-    // hardcore: death wipes them back to the base rifle / armor cap
+    // hardcore: death wipes them back to the base rifle / base vitals
     out.hardcoreAfterDeath = dieAndRedeploy('hardcore');
     s.bus.dispatchEvent(new CustomEvent('ui:settings', { detail: { difficulty: 'standard' } }));
     return out;
@@ -437,10 +483,29 @@ try {
   if (loot.relic.maxArmor < loot.before.maxArmor + 50) qa.errors.push('[qa] relic did not raise armor cap');
   if (loot.relic.health < 100) qa.errors.push('[qa] relic did not restore health');
   if (loot.relic.armor !== loot.relic.maxArmor) qa.errors.push('[qa] relic did not fill armor');
+  if (loot.guard.damageReduction < 0.099 || loot.guard.damageReduction > 0.101) {
+    qa.errors.push('[qa] shield pickups did not stack 5% damage reduction');
+  }
+  if (!loot.guard.hud.includes('DR -10%')) qa.errors.push('[qa] HUD did not show damage-reduction buff');
+  // 45 damage after mitigation → health 83.8 / armor 71.2 (unmitigated would be 82 / 68).
+  if (!(loot.guard.hit.health > 83 && loot.guard.hit.armor > 71)) {
+    qa.errors.push('[qa] damage reduction was not applied to incoming damage: ' + JSON.stringify(loot.guard.hit));
+  }
+  if (loot.vital.maxHealth !== loot.vital.before + Math.round(loot.vital.before * 0.1)) {
+    qa.errors.push('[qa] vital core did not raise max health by 10%');
+  }
+  if (loot.vital.hud.indexOf('HP +10') === -1 || loot.vital.healthMaxHud !== '/110') {
+    qa.errors.push('[qa] HUD did not show health-ceiling buff');
+  }
   if (loot.standardAfterDeath.magSize < loot.upgraded.magSize) qa.errors.push('[qa] standard mode lost upgrades after death');
   if (!(loot.standardAfterDeath.maxArmor > 100)) qa.errors.push('[qa] standard mode lost armor cap after death');
+  if (loot.standardAfterDeath.maxHealth <= 100) qa.errors.push('[qa] standard mode lost health cap after death');
+  if (!(loot.standardAfterDeath.damageReduction > 0)) qa.errors.push('[qa] standard mode lost damage reduction after death');
   if (loot.hardcoreAfterDeath.magSize !== 30 || loot.hardcoreAfterDeath.dmg !== 1) qa.errors.push('[qa] hardcore did not reset upgrades after death');
   if (loot.hardcoreAfterDeath.maxArmor !== 100) qa.errors.push('[qa] hardcore did not reset armor cap after death');
+  if (loot.hardcoreAfterDeath.maxHealth !== 100 || loot.hardcoreAfterDeath.damageReduction !== 0) {
+    qa.errors.push('[qa] hardcore did not reset vitals loot after death');
+  }
   console.log('loot', JSON.stringify(loot));
 
   // Death-screen pass: the loot test left a fresh run, so just take lethal damage.

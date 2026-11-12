@@ -460,11 +460,13 @@ export class WeaponSystem {
     add(lightMod, rounded(0.045, 0.034, 0.09, this.matBlack, 0.006, 2), 0.052, 0.0, 0);
     add(lightMod, cyl(0.012, 0.012, 0.015, this.matSteelDark, 14), 0.052, 0.0, -0.052, Math.PI / 2);
     add(lightMod, cyl(0.008, 0.008, 0.006, new THREE.MeshBasicMaterial({ color: 0x8fe8ff }), 14), 0.052, 0.0, -0.061, Math.PI / 2);
-    // cable
+    // cable — both ends must terminate INSIDE geometry: the front end inside the
+    // light-module body, the rear end inside the lower receiver (was floating in
+    // mid-air ~5 mm behind the light and ~25 mm in front of the receiver).
     const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0.052, -0.016, -0.27),
+      new THREE.Vector3(0.052, -0.020, -0.300),
       new THREE.Vector3(0.06, -0.06, -0.20),
-      new THREE.Vector3(0.035, -0.07, -0.10),
+      new THREE.Vector3(0.030, -0.050, -0.055),
     ]);
     add(gun, new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.0035, 5), this.matRubber));
 
@@ -565,6 +567,49 @@ export class WeaponSystem {
     const sleeve = this.matSleeve;
     const palmMat = this.matGlovePalm;
 
+    /**
+     * Forearm / sleeve run from a wrist point outward.  Points are in gun space
+     * (both hand groups are fixed gun-space children).  Tapered cylinder
+     * segments are left open-ended so no flat cap faces the lens (a wrist tube
+     * pointing at the camera reads as a dark peg, which is why the old sleeve
+     * tubes were removed instead of replaced); the far end gets a rounded cap
+     * and sits outside the near frame.
+     */
+    const sleeveRun = (points, rWrist, rElbow) => {
+      const up = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i];
+        const b = points[i + 1];
+        const dir = new THREE.Vector3().subVectors(b, a);
+        const len = dir.length();
+        if (len < 1e-5) continue;
+        const t0 = i / (points.length - 1);
+        const t1 = (i + 1) / (points.length - 1);
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(
+            rWrist + (rElbow - rWrist) * t1,
+            rWrist + (rElbow - rWrist) * t0,
+            len, 12, 1, true,
+          ),
+          sleeve,
+        );
+        mesh.position.copy(a).addScaledVector(dir, 0.5);
+        mesh.quaternion.setFromUnitVectors(up, dir.normalize());
+        gun.add(mesh);
+      }
+      // cuff ring hides the rounded glove wrist cap where the sleeve starts
+      const cuffDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
+      const cuff = new THREE.Mesh(new THREE.CylinderGeometry(rWrist * 1.12, rWrist * 1.18, 0.034, 12), sleeve);
+      cuff.position.copy(points[0]).addScaledVector(cuffDir, 0.004);
+      cuff.quaternion.setFromUnitVectors(up, cuffDir);
+      gun.add(cuff);
+      // rounded end cap: the open tube end never faces the player camera (it is
+      // outside the near frame), but the isolated model stage can see it
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(rElbow * 0.98, 10, 8), sleeve);
+      cap.position.copy(points[points.length - 1]);
+      gun.add(cap);
+    };
+
 
     /** Chain of capsules through a list of joint points (hand-local space). */
     const chain = (parent, points, radius, mat, jointRadius = radius * 1.06) => {
@@ -620,7 +665,13 @@ export class WeaponSystem {
       new THREE.Vector3(0.030, 0.046, -0.022),
       new THREE.Vector3(0.014, 0.050, -0.040),
     ], 0.0112, glove);
-    // (no wrist tubes: a cylinder pointing at the camera reads as a dark peg)
+    // right forearm: leaves the wrist down/back and out of the bottom of frame
+    sleeveRun([
+      new THREE.Vector3(0.038, -0.132, 0.152),
+      new THREE.Vector3(0.075, -0.225, 0.300),
+      new THREE.Vector3(0.135, -0.345, 0.500),
+      new THREE.Vector3(0.185, -0.460, 0.720),
+    ], 0.042, 0.055);
 
     /* ---------------------------------------------------------------------
      * LEFT HAND — "C-clamp" support grip on the handguard. The palm presses
@@ -639,18 +690,20 @@ export class WeaponSystem {
     // palm / heel of the hand against the left flank
     add(left, rounded(0.040, 0.062, 0.078, glove, 0.014, 3), 0, 0, 0);
     add(left, rounded(0.030, 0.020, 0.056, dark, 0.008, 2), -0.008, -0.022, 0.002, 0.06);
-    // four fingers curling up and over the top of the handguard
+    // four fingers curling up and over the top of the handguard.  The curl sits
+    // a few mm higher than before so the finger undersides rest on the handguard
+    // rail plate instead of interpenetrating it (visible from the top view).
     for (let i = 0; i < 4; i++) {
       const z = -0.052 + i * 0.021;
       chain(left, [
         new THREE.Vector3(0.006, 0.026, z),
-        new THREE.Vector3(0.022, 0.050, z - 0.002),
-        new THREE.Vector3(0.048, 0.060, z - 0.004),
-        new THREE.Vector3(0.070, 0.050, z - 0.006),
+        new THREE.Vector3(0.022, 0.056, z - 0.002),
+        new THREE.Vector3(0.048, 0.066, z - 0.004),
+        new THREE.Vector3(0.070, 0.056, z - 0.006),
       ], 0.0092 - i * 0.0004, glove);
       // knuckle pad on the back of the finger, facing the camera
       add(left, rounded(0.013, 0.012, 0.014, dark, 0.004, 1),
-        0.028, 0.062, z - 0.002, 0.1, 0, -0.2);
+        0.028, 0.068, z - 0.002, 0.1, 0, -0.2);
     }
     // thumb along the left flank, pointing toward the muzzle
     chain(left, [
@@ -658,7 +711,13 @@ export class WeaponSystem {
       new THREE.Vector3(-0.010, 0.016, -0.054),
       new THREE.Vector3(-0.002, 0.018, -0.078),
     ], 0.0106, glove);
-    // (wrist tubes removed — they read as pegs poking into frame)
+    // left forearm: leaves the support wrist down/left/back out of the frame
+    sleeveRun([
+      new THREE.Vector3(-0.066, -0.026, -0.300),
+      new THREE.Vector3(-0.140, -0.160, -0.175),
+      new THREE.Vector3(-0.230, -0.330, 0.020),
+      new THREE.Vector3(-0.300, -0.520, 0.230),
+    ], 0.042, 0.055);
   }
 
   _bindInput() {

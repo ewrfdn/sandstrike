@@ -4,6 +4,11 @@ import { emit } from './bus.js';
 import { clamp, damp, rand } from './utils.js';
 
 const P = CONFIG.player;
+const LOOT = CONFIG.loot || {};
+/** Damage-taken reduction from shield loot is additive but never fully negates hits. */
+const DAMAGE_REDUCTION_CAP = clamp(Number(LOOT.damageReductionCap) || 0.6, 0, 0.9);
+/** Ceiling for loot-stacked max health; keeps the HUD numbers readable. */
+const MAX_HEALTH_CAP = Math.max(P.maxHealth, Number(LOOT.maxHealthCap) || 500);
 const KEY = {
   forward: ['KeyW', 'ArrowUp'],
   back: ['KeyS', 'ArrowDown'],
@@ -57,6 +62,8 @@ export class Player {
     this.maxHealth = P.maxHealth;
     this.armor = 60;
     this.maxArmor = P.maxArmor;
+    /** Incoming-damage mitigation from shield-module loot (0..DAMAGE_REDUCTION_CAP). */
+    this.damageReduction = 0;
     this.alive = true;
     this.timeSinceDamage = 999;
     this.kills = 0;
@@ -195,7 +202,9 @@ export class Player {
 
   takeDamage(rawAmount, fromPosition = null, source = 'robot') {
     if (!this.alive || this.godMode) return;
-    const amount = Math.max(0, rawAmount);
+    // Shield-module loot mitigates the incoming hit before armor soaks its share.
+    const mitigation = clamp(this.damageReduction || 0, 0, DAMAGE_REDUCTION_CAP);
+    const amount = Math.max(0, rawAmount) * (1 - mitigation);
     const armorPart = Math.min(this.armor, amount * 0.64);
     this.armor -= armorPart;
     const healthPart = amount - armorPart;
@@ -274,6 +283,50 @@ export class Player {
     emit('player:stats', this.stats);
   }
 
+  /** Shield module: stack incoming-damage mitigation (5% per pickup by default). */
+  addDamageReduction(fraction = LOOT.guardReduction || 0.05) {
+    const gain = clamp(Number(fraction) || 0.05, 0.01, 0.5);
+    this.damageReduction = clamp((this.damageReduction || 0) + gain, 0, DAMAGE_REDUCTION_CAP);
+    emit('player:stats', this.stats);
+    return this.damageReduction;
+  }
+
+  /** Restore a carried mitigation total (standard-mode redeploy). */
+  setDamageReduction(value) {
+    this.damageReduction = clamp(Number(value) || 0, 0, DAMAGE_REDUCTION_CAP);
+    emit('player:stats', this.stats);
+  }
+
+  /** Fresh deploy / hardcore: wipe shield-module mitigation. */
+  resetDamageReduction() {
+    this.damageReduction = 0;
+    emit('player:stats', this.stats);
+  }
+
+  /** Vital core: raise the health ceiling by a fraction of the current max and grant the gain. */
+  grantMaxHealth(fraction = LOOT.vitalHealthGain || 0.1) {
+    const gain = Math.max(1, Math.round(this.maxHealth * clamp(Number(fraction) || 0.1, 0.01, 1)));
+    this.maxHealth = Math.min(MAX_HEALTH_CAP, this.maxHealth + gain);
+    this.health = Math.min(this.maxHealth, this.health + gain);
+    emit('player:stats', this.stats);
+    return this.maxHealth;
+  }
+
+  /** Fresh deploy / hardcore: drop the max-health ceiling back to the base spec. */
+  resetMaxHealthCap(baseMax = P.maxHealth) {
+    this.maxHealth = baseMax;
+    this.health = Math.min(this.health, this.maxHealth);
+    emit('player:stats', this.stats);
+  }
+
+  /** Restore a permanent health-cap bonus carried over from a previous run. */
+  applyMaxHealthBonus(bonus, baseMax = P.maxHealth) {
+    const extra = Math.max(0, Number(bonus) || 0);
+    this.maxHealth = Math.min(MAX_HEALTH_CAP, baseMax + extra);
+    this.health = this.maxHealth;
+    emit('player:stats', this.stats);
+  }
+
   get stats() {
     return {
       health: Math.ceil(this.health),
@@ -281,6 +334,8 @@ export class Player {
       armor: Math.ceil(this.armor),
       maxArmor: this.maxArmor,
       alive: this.alive,
+      damageReduction: clamp(this.damageReduction || 0, 0, 1),
+      healthBonus: Math.max(0, Math.round(this.maxHealth - P.maxHealth)),
     };
   }
 

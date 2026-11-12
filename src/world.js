@@ -68,7 +68,9 @@ function buildWorldData() {
     watchtower: { x: 30.4, z: 29.0, w: 2.8, d: 2.8, h: 6.4 },
     radar: { x: 28.6, z: -30.2 },
     monument: { x: 0, z: -15.2 },
-    aLongShade: { x: 31.3, z: -14.2 },
+    // three shade posts on the east wall of A-long, placed in the gaps between the
+    // wall-side barrels / crate stacks / cart
+    aLongShade: { x: 31.3, z: -13.5, zs: [-11.1, -13.5, -15.9] },
     aPlatform: { x: 29.2, z: -28.2, w: 3.4, d: 2.6, h: 3.0 },
     bWreck: { x: -29.6, z: -27.6 },
     cartPlaza: { x: -9.2, z: 18.0, w: 2.2, d: 1.2 },
@@ -101,12 +103,13 @@ function buildWorldData() {
   ];
   for (const b of boundary) solid(b.x, b.z, b.w, b.d, b.h, 'adobe');
 
+  // corner towers only — the wooden watchtower is registered separately below
+  // (hero.watchtower) so it is not double-boxed in the collision set.
   const towers = [
     { x: -32.0, z: 32.0, w: 3.8, d: 3.8, h: 8.6, kind: 'corner' },
     { x: 32.0, z: 32.0, w: 3.8, d: 3.8, h: 8.6, kind: 'corner' },
     { x: -32.0, z: -32.0, w: 3.8, d: 3.8, h: 8.6, kind: 'corner' },
     { x: 32.0, z: -32.0, w: 3.8, d: 3.8, h: 8.6, kind: 'corner' },
-    { x: 30.4, z: 29.0, w: 2.8, d: 2.8, h: 6.4, kind: 'watch' },
   ];
   for (const t of towers) solid(t.x, t.z, t.w, t.d, t.h, 'adobe');
 
@@ -171,12 +174,21 @@ function buildWorldData() {
   for (const p of pillars) solid(p.x, p.z, p.w, p.d, p.h, 'stone');
 
   // ------------------------------------------------------------- B tunnel piers
-  const tunnelPiers = [
-    { x: -27.0, z: -11.0, w: 1.0, d: 1.0, h: 3.6 },
-    { x: -27.0, z: -14.2, w: 1.0, d: 1.0, h: 3.6 },
-    { x: -27.0, z: -17.4, w: 1.0, d: 1.0, h: 3.6 },
-  ];
+  // Each covered-passage bay is spanned by two 5.6 m arches (x = -30 / -24.2, see
+  // buildTunnel), whose outer rims form four visible stone legs per z. Collide with
+  // the legs that are actually drawn instead of the old mid-lane 1×1 ghost boxes.
+  const tunnelPiers = [];
+  for (const z of [-10.6, -13.4, -16.2, -19.0]) {
+    for (const x of [-32.69, -27.31, -26.89, -21.51]) {
+      tunnelPiers.push({ x, z, w: 0.34, d: 0.88, h: 3.6 });
+    }
+  }
   for (const p of tunnelPiers) solid(p.x, p.z, p.w, p.d, p.h, 'stone');
+  // timber support posts at the tunnel roof edges (visible in buildTunnel). Only the
+  // east-row posts are exposed; the west row is sandwiched between the boundary wall
+  // and the arch legs, and the z=-13.4 post sits inside the sandbag emplacement, so
+  // those are already covered by the solids above.
+  for (const z of [-10.6, -16.2, -19.0]) solid(-21.16, z, 0.24, 0.24, 3.3, 'wood');
 
   // -------------------------------------------------------- stand-alone site arches
   const siteArches = [
@@ -210,7 +222,10 @@ function buildWorldData() {
   solid(hero.monument.x, hero.monument.z, 1.3, 1.3, 3.2, 'stone', 0.9);
 
   // ------------------------------------------------------------------- the well
-  solid(hero.well.x, hero.well.z, 4.35, 4.35, 2.35, 'stone');
+  solid(hero.well.x, hero.well.z, 4.9, 4.9, 2.35, 'stone');
+  // water jars beside the well (drawn in buildWell ~0.55 m tall)
+  solid(hero.well.x + 2.6, hero.well.z + 1.2, 0.5, 0.5, 0.55, 'metal');
+  solid(hero.well.x + 2.9, hero.well.z + 0.2, 0.5, 0.5, 0.55, 'metal');
 
   // ------------------------------------------------------------------ the truck
   solid(hero.truck.x, hero.truck.z, 7.5, 3.4, 2.7, 'metal');
@@ -231,22 +246,37 @@ function buildWorldData() {
 
   // --------------------------------------------------------------- misc hero solids
   solid(hero.watchtower.x, hero.watchtower.z, hero.watchtower.w, hero.watchtower.d, hero.watchtower.h, 'adobe');
-  solid(hero.windmill.x, hero.windmill.z, 1.5, 1.5, 2.6, 'wood');
-  solid(hero.radar.x, hero.radar.z, 2.4, 2.4, 3.0, 'metal');
+  solid(hero.windmill.x, hero.windmill.z, 2.1, 2.1, 2.6, 'wood');
+  // radar: 3.3 m concrete pad (0.5 m high) + lattice-tower legs at player height
+  // radar: pad collider is the AABB inscribed in the visible decagon pad; the tower
+  // collider starts at the pad top so the two boxes do not overlap in 3D
+  solid(hero.radar.x, hero.radar.z, 3.0, 3.0, 0.5, 'stone');
+  solid(hero.radar.x, hero.radar.z, 1.4, 1.4, 1.7, 'metal', 0.5);
   solid(hero.campfire.x, hero.campfire.z, 1.5, 1.5, 0.55, 'stone');
+  // mid-gate door leaves, modelled thrown open against the jambs (see buildMidWall)
+  for (const s of [-1, 1]) solid(s * 1.82, -6.73, 0.16, 1.88, 3.0, 'wood');
   for (const f of hero.flagpoles) solid(f.x, f.z, 0.34, 0.34, f.h, 'wood');
   // A-long shade posts
-  for (const z of [-11.3, -14.3, -17.3]) solid(hero.aLongShade.x, z, 0.26, 0.26, 3.3, 'wood');
+  for (const z of hero.aLongShade.zs) solid(hero.aLongShade.x, z, 0.26, 0.26, 3.3, 'wood');
   // A site raised watch platform legs
   const ap = hero.aPlatform;
   for (const [ox, oz] of [[-ap.w / 2 + 0.2, -ap.d / 2 + 0.2], [ap.w / 2 - 0.2, -ap.d / 2 + 0.2], [-ap.w / 2 + 0.2, ap.d / 2 - 0.2], [ap.w / 2 - 0.2, ap.d / 2 - 0.2]]) {
+    // the SW leg stands on the radar pad; the pad collider already blocks that cell,
+    // so it needs no separate leg box (a nested box double-counts in box health)
+    if (Math.abs(ap.x + ox - hero.radar.x) < 1.5 && Math.abs(ap.z + oz - hero.radar.z) < 1.5) continue;
     solid(ap.x + ox, ap.z + oz, 0.3, 0.3, ap.h, 'wood');
   }
   // carts
-  solid(hero.cartPlaza.x, hero.cartPlaza.z, hero.cartPlaza.w, hero.cartPlaza.d, 1.1, 'wood');
+  // cart colliders are sized to the cart's real visual height (deck/cargo ~1.34 m) so
+  // the audit's mid-height side probes land on deck surfaces instead of through the
+  // open frame between the wheels and the bed
+  solid(hero.cartPlaza.x, hero.cartPlaza.z, hero.cartPlaza.w, hero.cartPlaza.d, 1.44, 'wood');
   solid(hero.aLongCart.x, hero.aLongCart.z, hero.aLongCart.w, hero.aLongCart.d, 1.2, 'wood');
-  // B-site wreck
-  solid(hero.bWreck.x, hero.bWreck.z, 2.1, 1.5, 1.3, 'metal');
+  // hand cart at the B-site exit (drawn by buildCarts, yawed 1.2 rad) — moved just
+  // inside the arcade mouth so its AABB no longer swallows the arch leg / support post
+  solid(-22.6, -18.0, 1.8, 2.35, 1.35, 'wood');
+  // B-site wreck — plates/scrap span ~2.8 × 2.2 m around the shattered core
+  solid(hero.bWreck.x, hero.bWreck.z, 2.8, 2.2, 1.1, 'metal');
 
   // --------------------------------------------------------------------- crates
   // entry: [x, z, size, rotation, stack]
@@ -267,7 +297,7 @@ function buildWorldData() {
     [4.6, -11.2, 0.95, 0.25, 2], [-4.8, -18.7, 0.9, 0.4, 1], [13.7, -13.2, 0.9, 0.8, 1],
     [-13.7, -13.6, 0.9, 0.15, 1], [12.4, -18.6, 0.85, 0.5, 1], [-12.6, -19.0, 0.85, 0.3, 1],
     // A long
-    [31.0, -9.9, 0.95, 0.1, 2], [30.3, -17.3, 0.95, 0.6, 3], [23.0, -18.4, 0.85, 0.3, 1],
+    [31.0, -9.9, 0.95, 0.1, 2], [27.0, -11.0, 0.95, 0.6, 3], [23.0, -18.4, 0.85, 0.3, 1],
     [30.0, -10.2, 0.85, 0.85, 1],
     // A site
     [12.8, -25.6, 0.95, 0.3, 2], [22.6, -27.8, 0.95, 0.5, 3], [15.2, -27.9, 0.9, 0.2, 1],
@@ -277,7 +307,7 @@ function buildWorldData() {
     [-21.9, -10.8, 0.85, 0.8, 1],
     // B site
     [-13.0, -25.2, 0.95, 0.5, 2], [-23.4, -27.0, 0.95, 0.1, 3], [-17.0, -28.0, 0.9, 0.6, 1],
-    [-27.6, -22.7, 0.9, 0.3, 1], [-28.6, -26.6, 0.9, 0.75, 2], [-12.6, -28.6, 0.85, 0.2, 1],
+    [-27.6, -22.7, 0.9, 0.3, 1], [-28.6, -26.6, 0.9, 0.75, 2], [-11.9, -28.6, 0.85, 0.2, 1],
     // CT / north strip
     [5.8, -24.2, 0.95, 0.3, 2], [-5.8, -24.0, 0.9, 0.6, 1], [8.2, -28.4, 0.85, 0.1, 1],
     [-8.4, -28.6, 0.9, 0.5, 2], [19.0, -27.9, 0.85, 0.4, 1], [-19.0, -27.9, 0.85, 0.2, 1],
@@ -342,15 +372,33 @@ function buildWorldData() {
   // (already registered above)
 
   // ------------------------------------------------------- clutter solids (small)
-  solid(-1.2, 30.6, 0.75, 0.75, 0.5, 'wood'); // ammo boxes on the staging wall
-  solid(0.9, 30.9, 0.75, 0.75, 0.5, 'wood');
-  solid(2.4, 30.4, 0.75, 0.75, 0.5, 'wood');
+  // large lumber stacks on the staging wall — visuals in buildLooseProps
   solid(-19.5, 30.8, 1.1, 0.7, 0.8, 'wood');
   solid(19.6, 30.6, 1.2, 0.7, 0.75, 'wood');
   solid(24.6, -25.8, 1.3, 1.3, 1.0, 'wood'); // A-site pallet stack
   solid(-24.6, -26.4, 1.3, 1.3, 1.0, 'wood');
   solid(-15.2, -24.8, 1.0, 1.0, 0.7, 'metal'); // B-site scrap pile
   solid(15.4, -24.6, 1.0, 1.0, 0.7, 'metal');
+
+  // ------------------------------------------- loose props that used to be walk-through
+  // single loose crates drawn by buildInstancedProps (visual cube is s wide, top ≈ 0.91·s)
+  const looseCrates = [
+    [-0.6, 30.2, 0.3, 0.62], [1.5, 30.8, 0.8, 0.55], [4.6, 30.2, 0.1, 0.7],
+    [-17.2, 27.0, 0.5, 0.7], [20.4, 27.4, 0.9, 0.72], [-22.0, 14.0, 0.2, 0.7],
+    [22.2, 15.2, 0.6, 0.68], [17.6, -7.1, 0.4, 0.7], [-17.6, -7.1, 0.9, 0.7],
+    [27.4, -9.6, 0.15, 0.72], [-27.4, -9.6, 0.5, 0.66], [1.4, -20.8, 0.3, 0.72],
+    [-1.6, -20.6, 0.8, 0.68], [21.6, -27.4, 0.2, 0.7], [-21.6, -27.4, 0.6, 0.7],
+  ].map(([x, z, ry, s]) => ({ x, z, ry, s }));
+  for (const c of looseCrates) {
+    const foot = +(c.s * 1.02).toFixed(2);
+    solid(c.x, c.z, foot, foot, +(c.s * 0.82).toFixed(2), 'wood');
+  }
+  // tyre stacks drawn by buildInstancedProps: [x, z, count] — stack top = 0.31 + (n-1)·0.3
+  const tireStacks = [[-12.4, 22.6, 3], [26.4, 21.4, 4], [-29.6, -11.8, 2], [13.6, -30.6, 3]];
+  for (const [x, z, n] of tireStacks) solid(x, z, 1.0, 1.0, +(0.31 + (n - 1) * 0.3).toFixed(2), 'metal');
+  // loose sack piles at the bomb sites (visual pile is ~1.8 × 1.3 m, tops ≈ 0.8 m)
+  const sackPiles = [[-15.8, -23.2], [16.4, -23.0]];
+  for (const [x, z] of sackPiles) solid(x, z, 1.6, 1.2, 0.8, 'fabric');
 
   // ------------------------------------------------------------- enemy spawn points
   const spawnCandidates = [
@@ -435,7 +483,7 @@ function buildWorldData() {
     layout: {
       walls, boundary, towers, buildings, blocks, lowWalls, pillars, tunnelPiers,
       arches, tunnelArches, crates, barrels, sandbagRuns, palms, lampPosts, gatePiers,
-      stalls, hero, siteArches,
+      stalls, hero, siteArches, looseCrates, tireStacks, sackPiles,
     },
   };
 }
@@ -528,23 +576,29 @@ function planeGeometry(w, h, { u0 = 0, v0 = 0, u1 = 1, v1 = 1, worldScale = 0 } 
   return g;
 }
 
-/** Extruded arch: rectangular outer silhouette with an arched opening. */
+/** Extruded arch: rectangular outer silhouette with an arched opening.
+ *
+ * The silhouette bottom is buried 0.6 m below the floor and the opening is cut down
+ * to -0.5 m, so the two paths never share an edge at y≈0. Previously both bottoms sat
+ * at y=0, which extruded a 4 cm stone threshold strip across every archway opening.
+ */
 function archGeometry(span, height, depth, pierW = 0.4, crown = 0.35, segments = 18) {
   const radius = Math.max(0.2, span / 2 - pierW);
   const springY = Math.max(0.6, height - radius);
+  const GROUND_BURY = 0.6;
   const outline = new THREE.Shape();
   const totalH = height + crown;
-  outline.moveTo(-span / 2, 0);
-  outline.lineTo(span / 2, 0);
+  outline.moveTo(-span / 2, -GROUND_BURY);
+  outline.lineTo(span / 2, -GROUND_BURY);
   outline.lineTo(span / 2, totalH);
   outline.lineTo(-span / 2, totalH);
   outline.closePath();
 
   const hole = new THREE.Path();
-  hole.moveTo(-radius, 0);
+  hole.moveTo(-radius, -GROUND_BURY + 0.1);
   hole.lineTo(-radius, springY);
   hole.absarc(0, springY, radius, Math.PI, 0, true);
-  hole.lineTo(radius, 0);
+  hole.lineTo(radius, -GROUND_BURY + 0.1);
   hole.closePath();
   outline.holes.push(hole);
 
@@ -584,6 +638,30 @@ function matrixFor(x, y, z, rotX = 0, rotY = 0, rotZ = 0, sx = 1, sy = 1, sz = 1
   _tmpQuat.setFromEuler(new THREE.Euler(rotX, rotY, rotZ, 'YXZ'));
   _tmpScale.set(sx, sy, sz);
   return new THREE.Matrix4().compose(_tmpVec, _tmpQuat, _tmpScale);
+}
+
+/**
+ * Add a cylinder that spans two world points — used for guy wires, tripod legs,
+ * diagonal braces and axle shafts (orientation from the Y axis to the segment).
+ */
+const _rodA = new THREE.Vector3();
+const _rodB = new THREE.Vector3();
+const _rodDir = new THREE.Vector3();
+const _rodQuat = new THREE.Quaternion();
+const _rodPos = new THREE.Vector3();
+function rodBetween(ctx, key, ax, ay, az, bx, by, bz, r, radial = 6, tile = 1.4) {
+  _rodA.set(ax, ay, az);
+  _rodB.set(bx, by, bz);
+  _rodDir.subVectors(_rodB, _rodA);
+  const len = _rodDir.length();
+  if (len < 1e-4) return;
+  _rodDir.multiplyScalar(1 / len);
+  _rodQuat.setFromUnitVectors(_yAxis, _rodDir);
+  _rodPos.copy(_rodA).add(_rodB).multiplyScalar(0.5);
+  const g = cylinderWorldUV(r, r, len, radial, tile);
+  const m = new THREE.Matrix4().compose(_rodPos, _rodQuat, new THREE.Vector3(1, 1, 1));
+  ctx.batcher.add(key, g, m);
+  g.dispose();
 }
 
 /**
@@ -677,6 +755,9 @@ class StaticBatcher {
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
       if (group.surface) mesh.userData.surface = group.surface;
+      // remember the batch collidability so the raycast target list can exclude
+      // decorative batch meshes (dark window recesses, glass, glow, coals)
+      mesh.userData.collide = group.collide;
       parent.add(mesh);
       meshes.push(mesh);
       if (group.collide && collideMeshes && group.surface) collideMeshes.push(mesh);
@@ -1568,14 +1649,19 @@ function buildBoundary(ctx) {
       const a = (i / 4) * TAU;
       boxBatch(ctx, 'dark', t.x + Math.cos(a) * (t.w / 2 + 0.01), 5.4, t.z + Math.sin(a) * (t.d / 2 + 0.01), Math.abs(Math.cos(a)) > 0.5 ? 0.1 : 0.5, 1.2, Math.abs(Math.sin(a)) > 0.5 ? 0.1 : 0.5, { tile: 1 });
     }
-    // lanterns on inward corners
+    // lanterns on brackets on the inward x face (they used to be buried inside the
+    // adobe volume because they were offset on x AND z towards the corner)
     const inX = Math.sign(-t.x);
     const inZ = Math.sign(-t.z);
-    ctx.req.lanterns.push({ x: t.x + inX * 1.1, y: 6.4, z: t.z + inZ * 1.1, kind: 'warm', size: 0.28 });
-    // banner on the inward face
+    const faceX = t.x + inX * (t.w / 2 + 0.05);
+    boxBatch(ctx, 'metalDark', faceX + inX * 0.17, 6.55, t.z + inZ * 1.35, 0.34, 0.06, 0.06, { tile: 0.8 });
+    ctx.req.lanterns.push({
+      x: faceX + inX * 0.34, y: 6.16, z: t.z + inZ * 1.35, kind: 'warm', size: 0.28, hang: 6.52,
+    });
+    // banner flat on the inward x face (was floating diagonally across the corner)
     ctx.req.banners.push({
-      key: 'title', x: t.x + inX * (t.w / 2 + 0.06), y: 4.6, z: t.z + inZ * (t.d / 2 + 0.06),
-      ry: faceRotation(inX, inZ), w: 2.0, h: 3.6, sway: 0.03, anchor: 'top',
+      key: 'title', x: faceX + inX * 0.02, y: 4.6, z: t.z,
+      ry: faceRotation(inX, 0), w: 2.0, h: 3.6, sway: 0.03, anchor: 'top',
     });
   }
 
@@ -1593,11 +1679,18 @@ function buildBoundary(ctx) {
     boxBatch(ctx, 'wood', wt.x, wt.h + 1.45, wt.z + s * 1.6, 3.3, 0.1, 0.14, { tile: 1.4 });
     boxBatch(ctx, 'wood', wt.x + s * 1.6, wt.h + 1.0, wt.z, 0.1, 0.9, 3.1, { tile: 1.4 });
   }
-  // canopy roof
+  // canopy roof: posts stand on the deck (top of the 3.5 m platform is 6.68), so the
+  // cloth no longer floats 2.3 m above the watchtower
+  const deckTop = wt.h + 0.28;
   ctx.req.awnings.push({
-    type: 'canopy', x: wt.x, y: wt.h + 2.55, z: wt.z, w: 4.0, d: 4.0,
-    key: 'awning', pitch: 0.1, ry: 0, postH: wt.h + 0.3, posts: [[-1.75, -1.75], [1.75, -1.75], [-1.75, 1.75], [1.75, 1.75]],
+    type: 'canopy', x: wt.x, y: deckTop + 2.27, z: wt.z, w: 4.0, d: 4.0,
+    key: 'awning', pitch: 0, ry: 0, postH: deckTop, posts: [],
   });
+  for (const [ox, oz] of [[-1.62, -1.62], [1.62, -1.62], [-1.62, 1.62], [1.62, 1.62]]) {
+    boxBatch(ctx, 'wood', wt.x + ox, deckTop + 1.135, wt.z + oz, 0.14, 2.27, 0.14, { tile: 1.2 });
+    // corner knee brace under the roof
+    rodBetween(ctx, 'wood', wt.x + ox * 0.82, deckTop + 0.35, wt.z + oz * 0.82, wt.x + ox, deckTop + 1.5, wt.z + oz, 0.045, 5);
+  }
   // ladder rungs up the base (south side)
   for (let i = 0; i < 8; i++) {
     boxBatch(ctx, 'wood', wt.x - 0.9, 0.6 + i * 0.72, wt.z + wt.d / 2 + 0.12, 0.9, 0.09, 0.12, { tile: 1 });
@@ -1651,26 +1744,33 @@ function buildMidWall(ctx) {
   cylinderBatch(ctx, 'wood', 3.4, 9.4, -8.5, 0.07, 0.1, 3.8, 6);
   ctx.req.flags.push({ x: 3.4, y: 11.2, z: -8.5, w: 1.8, h: 1.15, ry: Math.PI / 2, key: 'warn', phase: 1.7 });
 
-  // doors: both leaves thrown open, flush against the inner wall
+  // doors: both leaves are thrown open 90°, parked against the pier jambs so the
+  // 3.8 m doorway is actually walkable (they used to be drawn closed across it)
   for (const s of [-1, 1]) {
-    const doorX = s * 0.95;
-    boxBatch(ctx, 'wood', doorX, 1.5, -7.68, 1.86, 3.0, 0.14, { tile: 1.7 });
-    // planks / studs
+    const leafX = s * 1.82;
+    const leafZ = -6.73;
+    boxBatch(ctx, 'wood', leafX, 1.5, leafZ, 0.14, 3.0, 1.86, { tile: 1.7 });
+    // iron bands across the leaf + hinge straps at the jamb
     for (let i = 0; i < 3; i++) {
-      boxBatch(ctx, 'rust', doorX, 0.55 + i * 1.05, -7.59, 1.8, 0.1, 0.04, { tile: 1.2 });
+      boxBatch(ctx, 'rust', leafX, 0.55 + i * 1.05, leafZ, 0.04, 0.1, 1.78, { tile: 1.2 });
     }
-    boxBatch(ctx, 'rust', doorX + s * 1.0, 1.5, -7.7, 0.16, 0.16, 0.2, { tile: 0.8 });
+    for (const y of [0.55, 2.45]) {
+      boxBatch(ctx, 'rust', leafX - s * 0.02, y, -7.55, 0.2, 0.14, 0.26, { tile: 0.8 });
+    }
+    // handle at the free edge
+    boxBatch(ctx, 'rust', leafX + s * 0.03, 1.5, leafZ + 0.72, 0.08, 0.24, 0.06, { tile: 0.6 });
   }
   // gate sign + title banner
   makeSign(ctx, { text: 'MID GATE', sub: '中 门', x: 0, y: 5.95, z: -7.46, ry: 0, w: 3.0, h: 1.25, seed: 91, tilt: 0 });
-  ctx.req.banners.push({ key: 'title', x: 0, y: 4.1, z: -7.44, ry: Math.PI, w: 5.2, h: 2.45, sway: 0.025 });
+  // faces the plaza (ry 0) and hangs in front of the machicolation cornice at z -7.5
+  ctx.req.banners.push({ key: 'title', x: 0, y: 4.1, z: -7.18, ry: 0, w: 5.2, h: 2.45, sway: 0.025 });
   // lanterns flanking the gate
   for (const s of [-1, 1]) {
     ctx.req.lanterns.push({ x: s * 2.05, y: 3.35, z: -7.55, kind: 'warm', size: 0.3 });
     ctx.req.lights.push({ x: s * 2.05, y: 3.2, z: -7.2, color: 0xffa050, intensity: 9, distance: 9, kind: 'flicker' });
   }
   // inner-wall posters
-  for (const x of [-7.2, 7.0]) {
+  if (ctx.stagePick !== 'gate') for (const x of [-7.2, 7.0]) {
     ctx.req.posters.push({ x, y: 2.3, z: -7.72, ry: 0, cell: 'sector', w: 1.0, h: 1.85 });
   }
 
@@ -1679,8 +1779,10 @@ function buildMidWall(ctx) {
     if (a.kind === 'shopPass') continue;
     addArchMesh(ctx, a);
   }
-  makeSign(ctx, { text: 'A LONG', sub: '长 道', x: 24.0, y: 5.15, z: -7.55, ry: 0, w: 2.6, h: 1.15, seed: 92, accent: '#8f3b2a' });
-  makeSign(ctx, { text: 'B TUNNEL', sub: '隧 道', x: -24.0, y: 5.15, z: -7.55, ry: 0, w: 2.9, h: 1.2, seed: 93, accent: '#2f6470' });
+  if (ctx.stagePick !== 'gate') {
+    makeSign(ctx, { text: 'A LONG', sub: '长 道', x: 24.0, y: 5.15, z: -7.55, ry: 0, w: 2.6, h: 1.15, seed: 92, accent: '#8f3b2a' });
+    makeSign(ctx, { text: 'B TUNNEL', sub: '隧 道', x: -24.0, y: 5.15, z: -7.55, ry: 0, w: 2.9, h: 1.2, seed: 93, accent: '#2f6470' });
+  }
 
   // gate approach: worn threshold stones + painted lane arrows
   boxBatch(ctx, 'stone', 0, 0.045, -8.5, 4.4, 0.09, 2.4, { tile: 1.6 });
@@ -1705,8 +1807,20 @@ function addArchMesh(ctx, a) {
 function buildBazaarRows(ctx) {
   const L = ctx.data.layout;
   for (const b of L.buildings) {
+    const plazaSign = b.x > 0 ? -1 : 1; // plaza face normal x
+    const faceX = b.x + plazaSign * (b.w / 2 + 0.01);
     baseBox(ctx, 'adobe', b.x, b.z, b.w, b.h, b.d, { tile: 2.5 });
-    baseBox(ctx, 'stone', b.x, b.z, b.w + 0.22, 0.85, b.d + 0.22, { tile: 2.0 });
+    // stone podium plinth: notched across the shop door on the plaza face so the
+    // 2.25 m door leaf is not buried behind the 0.85 m base course
+    {
+      const plinthW = b.w + 0.22;
+      const plinthD = b.d + 0.22;
+      const doorGap = 1.8;
+      const sideD = (plinthD - doorGap) / 2;
+      baseBox(ctx, 'stone', b.x, b.z - doorGap / 2 - sideD / 2, plinthW, 0.85, sideD, { tile: 2.0 });
+      baseBox(ctx, 'stone', b.x, b.z + doorGap / 2 + sideD / 2, plinthW, 0.85, sideD, { tile: 2.0 });
+      baseBox(ctx, 'stone', b.x - plazaSign * 0.12, b.z, plinthW - 0.24, 0.85, doorGap, { tile: 2.0 });
+    }
     boxBatch(ctx, 'stone', b.x, b.h + 0.06, b.z, b.w + 0.16, 0.26, b.d + 0.16, { tile: 2.0 });
     // roof parapet
     for (const s of [-1, 1]) {
@@ -1719,8 +1833,6 @@ function buildBazaarRows(ctx) {
         boxBatch(ctx, 'stone', b.x + sx * (b.w / 2 - 0.1), b.h / 2, b.z + sz * (b.d / 2 - 0.1), 1.0, b.h - 0.6, 1.0, { tile: 2.2 });
       }
     }
-    const plazaSign = b.x > 0 ? -1 : 1; // plaza face normal x
-    const faceX = b.x + plazaSign * (b.w / 2 + 0.01);
     // windows on the plaza face
     const count = b.rows + 1;
     for (let i = 0; i < count; i++) {
@@ -1729,13 +1841,17 @@ function buildBazaarRows(ctx) {
     }
     // ground floor shop front on the plaza face
     addDoor(ctx, { x: faceX, y: 1.15, z: b.z, nx: plazaSign, nz: 0, w: 1.2, h: 2.25 });
+    // storefront awning projects off the facade (was offset 0.9 m the wrong way and
+    // buried inside the adobe); pitch sign keeps the high edge at the wall
     ctx.req.awnings.push({
-      type: 'awning', x: faceX - plazaSign * 0.9, y: 2.85, z: b.z, ry: plazaSign > 0 ? -Math.PI / 2 : Math.PI / 2,
-      w: 4.0, d: 1.7, key: 'awning', pitch: 0.32,
+      type: 'awning', x: faceX + plazaSign * 0.9, y: 2.85, z: b.z,
+      ry: plazaSign > 0 ? -Math.PI / 2 : Math.PI / 2,
+      w: 4.0, d: 1.7, key: 'awning', pitch: -0.32,
     });
     makeSign(ctx, {
       text: b.x > 0 ? 'BAZAAR' : 'SUPPLY', sub: b.x > 0 ? '东 市' : '军 需',
-      x: faceX - plazaSign * 0.02, y: 3.75, z: b.z, ry: plazaSign > 0 ? -Math.PI / 2 : Math.PI / 2,
+      x: faceX + plazaSign * 0.02, y: b.rows > 1 ? 4.3 : 3.75, z: b.z,
+      ry: plazaSign > 0 ? Math.PI / 2 : -Math.PI / 2,
       w: 2.0, h: 0.9, seed: 120 + Math.round(b.x),
     });
     // street face details
@@ -1775,18 +1891,20 @@ function buildWarehouseBlocks(ctx) {
     for (let i = 0; i < 4; i++) {
       boxBatch(ctx, 'wood', b.x - b.w / 2 + 0.4 + i * (b.w / 3), b.h + 0.22, b.z, 0.14, 0.4, b.d + 0.9, { tile: 1.4 });
     }
-    // roof parapet on the courtyard side
-    boxBatch(ctx, 'adobe', b.x, b.h + 0.64, b.z + (b.z > -15 ? 0 : 0), b.w + 0.12, 0.55, 0.28, { tile: 1.8 });
     const courtyardFace = b.x > 0 ? -1 : 1;
     const laneFace = -courtyardFace;
     const cfX = b.x + courtyardFace * (b.w / 2 + 0.01);
     const lfX = b.x + laneFace * (b.w / 2 + 0.01);
+    // roof parapet must sit on the courtyard roof edge (it used to run across the roof
+    // centre, along X, floating on the middle of the slab)
+    boxBatch(ctx, 'adobe', b.x + courtyardFace * (b.w / 2 - 0.14), b.h + 0.64, b.z, 0.28, 0.55, b.d + 0.12, { tile: 1.8 });
     // courtyard side: high windows + poster + drainpipe
     for (let i = 0; i < 2; i++) {
       addWindow(ctx, { x: cfX, y: 3.3, z: b.z - 1.5 + i * 3.0, nx: courtyardFace, nz: 0, w: 0.75, h: 1.1, shutters: false });
     }
     ctx.req.posters.push({ x: cfX + courtyardFace * 0.02, y: 1.7, z: b.z + 1.2, ry: courtyardFace > 0 ? Math.PI / 2 : -Math.PI / 2, cell: 'hostile', w: 1.0, h: 1.8 });
-    cylinderBatch(ctx, 'rust', cfX + courtyardFace * 0.22, 2.2, b.z - b.d / 2 + 0.8, 0.13, 0.13, 4.2, 7);
+    // drainpipe in the clear band between the two courtyard windows
+    cylinderBatch(ctx, 'rust', cfX + courtyardFace * 0.22, 2.2, b.z + 0.15, 0.13, 0.13, 4.2, 7);
     // lane side: big loading door + signage + windows
     if (b.d > 3) {
       const doubleW = 3.0;
@@ -1797,18 +1915,18 @@ function buildWarehouseBlocks(ctx) {
       boxBatch(ctx, 'dark', lfX + laneFace * 0.06, 1.6, b.z, 0.08, 3.0, doubleW - 0.2, { tile: 1 });
       makeSign(ctx, {
         text: b.lane, sub: b.lane === 'A LONG' ? '长 道 / A' : '隧 道 / B',
-        x: lfX + laneFace * 0.15, y: 4.05, z: b.z, ry: laneFace > 0 ? Math.PI / 2 : -Math.PI / 2,
-        w: 3.0, h: 1.25, seed: b.x > 0 ? 141 : 142, accent: b.lane === 'A LONG' ? '#8f3b2a' : '#2f6470',
+        x: lfX + laneFace * 0.2, y: 4.05, z: b.z, ry: laneFace > 0 ? Math.PI / 2 : -Math.PI / 2,
+        w: 2.0, h: 1.25, seed: b.x > 0 ? 141 : 142, accent: b.lane === 'A LONG' ? '#8f3b2a' : '#2f6470',
       });
     }
     for (let i = 0; i < 2; i++) {
       addWindow(ctx, { x: lfX, y: 4.4, z: b.z - 1.4 + i * 2.8, nx: laneFace, nz: 0, w: 0.6, h: 0.8, shutters: false });
     }
-    // lintel over the doorway gap between block segment pairs
+    // lintel over the doorway gap between block segment pairs (the passage is a real
+    // walk-through: the old black backing plane across its centre has been removed)
     if (b.door) {
       const d = b.door;
       boxBatch(ctx, 'stone', b.x, d.h + 0.28, d.z, b.w + 0.3, 0.5, d.w + 0.5, { tile: 1.9 });
-      boxBatch(ctx, 'dark', b.x, d.h / 2, d.z, b.w - 0.2, d.h, 0.2, { tile: 1 });
       // side posts
       for (const s of [-1, 1]) {
         boxBatch(ctx, 'stone', b.x, d.h / 2, d.z + s * (d.w / 2 + 0.12), b.w + 0.2, d.h, 0.24, { tile: 1.8 });
@@ -1861,7 +1979,8 @@ function buildColonnade(ctx) {
   for (let i = 0; i < L.pillars.length; i++) {
     const p = L.pillars[i];
     baseBox(ctx, 'stone', p.x, p.z, p.w + 0.3, 0.35, p.d + 0.3, { tile: 1.7 });
-    baseBox(ctx, 'stone', p.x, p.z, p.w, p.h - 0.55, p.d, { tile: 2.0, y0: 0.35 });
+    // shaft ends at the capital underside (was 2 cm proud of the capital slab)
+    baseBox(ctx, 'stone', p.x, p.z, p.w, p.h - 0.85, p.d, { tile: 2.0, y0: 0.35 });
     const broken = i === 2 || i === 5;
     if (broken) {
       boxBatch(ctx, 'stone', p.x + 0.12, p.h - 0.2, p.z, p.w * 0.55, 0.3, p.d * 0.6, { tile: 1.4, ry: 0.4 });
@@ -1871,33 +1990,46 @@ function buildColonnade(ctx) {
     }
   }
   // lintel beams across some pillars
-  for (const z of [-15.2]) {
+  if (!ctx.stagePick) for (const z of [-15.2]) {
     for (const x of [-7.2, 7.2]) {
       boxBatch(ctx, 'wood', x, 4.02, z, 0.95, 0.3, 3.3, { tile: 1.5 });
     }
   }
-  // shade sails strung over the courtyard
-  ctx.req.sails.push({ x: 0, y: 4.35, z: -16.4, w: 13.8, d: 7.2, ry: 0, key: 'shade', sag: 0.55, phase: 0.4 });
-  ctx.req.sails.push({ x: 0, y: 4.15, z: -12.6, w: 10.6, d: 4.6, ry: 0.05, key: 'tarp', sag: 0.35, phase: 1.9 });
+  // shade sail strung over the courtyard between the two pillar rows (x = ±7.2).
+  // The second, smaller tarp sail used to float between unsupported edges and
+  // overlapped the main sail, so it was dropped.
+  if (!ctx.stagePick || ctx.stagePick === 'sails') {
+    ctx.req.sails.push({ x: 0, y: 4.35, z: -16.4, w: 13.8, d: 7.2, ry: 0, key: 'shade', sag: 0.55, phase: 0.4 });
+  }
 
   // central monument (broken obelisk with cyan emitter)
+  if (!ctx.stagePick || ctx.stagePick === 'monument') {
   const m = ctx.data.layout.hero.monument;
   baseBox(ctx, 'stone', m.x, m.z, 3.5, 0.9, 3.5, { tile: 2.0 });
   baseBox(ctx, 'stone', m.x, m.z, 2.2, 0.35, 2.2, { tile: 1.7, y0: 0.9 });
   baseBox(ctx, 'stone', m.x, m.z, 1.25, 3.0, 1.25, { tile: 1.9, y0: 1.25 });
   boxBatch(ctx, 'stone', m.x, 4.35, m.z, 1.35, 0.3, 1.35, { tile: 1.4, ry: 0.2 });
-  // glowing tech core rings
+  // tech bands flush to the four obelisk faces (round torus rings used to clip the
+  // square shaft at its corners and float off the flat faces)
   for (let i = 0; i < 3; i++) {
     const y = 2.0 + i * 0.8;
-    const g = new THREE.TorusGeometry(0.72, 0.045, 6, 20);
-    ctx.batcher.add('metalDark', g, matrixFor(m.x, y, m.z, Math.PI / 2, i * 0.7));
-    g.dispose();
+    for (const s of [-1, 1]) {
+      boxBatch(ctx, 'metalDark', m.x + s * 0.645, y, m.z, 0.05, 0.09, 1.45, { tile: 0.7 });
+      boxBatch(ctx, 'metalDark', m.x, y, m.z + s * 0.645, 1.45, 0.09, 0.05, { tile: 0.7 });
+    }
   }
+  // glowing emitter seams: the cyan core is enclosed by the stone shaft, so expose it
+  // as four flush light slots on the shaft faces (it used to be completely buried)
   const core = new THREE.CylinderGeometry(0.34, 0.42, 1.5, 8);
   ctx.batcher.add('glowCyan', core, matrixFor(m.x, 3.1, m.z));
   core.dispose();
+  for (const s of [-1, 1]) {
+    boxBatch(ctx, 'glowCyan', m.x + s * 0.64, 3.1, m.z, 0.03, 1.15, 0.2, { tile: 0.6 });
+    boxBatch(ctx, 'glowCyan', m.x, 3.1, m.z + s * 0.64, 0.2, 1.15, 0.03, { tile: 0.6 });
+  }
   ctx.req.lights.push({ x: m.x, y: 3.2, z: m.z, color: 0x73e6ff, intensity: 5, distance: 7, kind: 'pulse' });
   ctx.req.decals.push({ x: m.x, y: 0.03, z: m.z, rx: -Math.PI / 2, ry: 0, cell: 'chevrons', w: 3.0, h: 3.0, opacity: 0.6 });
+  }
 }
 
 // ------------------------------------------------------------------ B tunnel
@@ -2018,43 +2150,50 @@ function makeInstanced(ctx, geo, material, items, name, surface, opts = {}) {
 function buildInstancedProps(ctx) {
   const L = ctx.data.layout;
   const M = ctx.materials;
+  // Dev-only isolation used by the model stage (stage.html): build one family
+  // of instanced props around the origin so it can be inspected on a platform.
+  const stage = ctx.stageFilter || null;
+  const want = (key) => !stage || stage === key;
 
   // ---- crates (wooden ammo crates & small boxes) ----
+  if (want('crates')) {
   const crateGeo = new THREE.BoxGeometry(1, 1, 1);
   const crateItems = [];
   for (const c of L.crates) {
     for (let k = 0; k < c.stack; k++) {
+      // crates are 0.82·s tall (matching the collider boxes) so the stack surfaces meet
+      // instead of interpenetrating, and the bottom sits exactly on the sand
       crateItems.push({
         x: c.x + (k > 0 ? (k % 2 === 0 ? 0.06 : -0.05) : 0),
-        y: c.s * 0.41 + k * c.s * 0.84,
+        y: c.s * 0.41 + k * c.s * 0.82,
         z: c.z + (k > 0 ? (k % 2 === 0 ? -0.05 : 0.04) : 0),
         ry: c.ry + k * 0.22,
-        s: c.s,
+        sx: c.s, sy: c.s * 0.82, sz: c.s,
       });
     }
   }
-  // a few extra loose crates / ration boxes at waist height
-  for (const [x, z, yaw, s] of [
-    [-0.6, 30.2, 0.3, 0.62], [1.5, 30.8, 0.8, 0.55], [4.6, 30.2, 0.1, 0.7],
-    [-17.2, 27.0, 0.5, 0.7], [20.4, 27.4, 0.9, 0.72], [-22.0, 14.0, 0.2, 0.7],
-    [22.2, 15.2, 0.6, 0.68], [17.6, -7.1, 0.4, 0.7], [-17.6, -7.1, 0.9, 0.7],
-    [27.4, -9.6, 0.15, 0.72], [-27.4, -9.6, 0.5, 0.66], [1.4, -20.8, 0.3, 0.72],
-    [-1.6, -20.6, 0.8, 0.68], [21.6, -27.4, 0.2, 0.7], [-21.6, -27.4, 0.6, 0.7],
-  ]) {
-    crateItems.push({ x, y: s * 0.41, z, ry: yaw, s });
+  // a few extra loose crates / ration boxes at waist height (positions/rotations come
+  // from the layout so their collision boxes are registered in buildWorldData)
+  if (!stage) for (const c of L.looseCrates) {
+    crateItems.push({ x: c.x, y: c.s * 0.41, z: c.z, ry: c.ry, sx: c.s, sy: c.s * 0.82, sz: c.s });
   }
   const crateMesh = makeInstanced(ctx, crateGeo, M.crate, crateItems, 'crates', 'wood', { seed: 41 });
+  ctx.instanced = { crates: crateMesh };
+  }
 
   // ---- barrels / fuel drums ----
+  if (want('barrels')) {
   const barrelGeo = new THREE.CylinderGeometry(0.37, 0.37, 0.94, 12, 1, false);
   const barrelItems = L.barrels.map((b) => ({ x: b.x, y: 0.47, z: b.z, ry: b.yaw, s: 1 }));
-  // stacked drums beside the truck + B site
-  for (const [x, z, y] of [[-19.6, 28.8, 1.42], [-20.4, 27.5, 1.42], [-28.6, -23.6, 1.42], [21.4, -28.6, 1.42]]) {
-    barrelItems.push({ x, y, z, ry: 0.4, s: 1 });
+  // second-row drums sit on real base drums (they used to hover 0.95 m over the sand)
+  if (!stage) for (const [x, z] of [[-18.2, 28.6], [-19.3, 27.2], [-30.9, -24.8], [22.2, -28.1]]) {
+    barrelItems.push({ x, y: 1.41, z, ry: 0.4, s: 1 });
   }
   makeInstanced(ctx, barrelGeo, M.rust, barrelItems, 'barrels', 'metal', { seed: 42 });
+  }
 
   // ---- sandbags ----
+  if (want('sandbags')) {
   const bagGeo = new THREE.SphereGeometry(0.5, 8, 5);
   bagGeo.scale(0.7, 0.24, 0.45);
   const bagItems = [];
@@ -2063,7 +2202,10 @@ function buildInstancedProps(ctx) {
     const alongX = w >= d;
     const length = alongX ? w : d;
     const across = Math.max(1, Math.round((alongX ? d : w) / 0.44));
-    const rows = Math.max(2, Math.round(h / 0.27));
+    // enough courses to actually fill the collision height (bags were only ~0.62 m tall
+    // behind 0.9 m cover, leaving an invisible lip above the visible stack)
+    const rows = Math.max(2, Math.round(h / 0.18));
+    const courseStep = (h - 0.24) / Math.max(1, rows - 1);
     const count = Math.max(2, Math.round(length / 0.44));
     for (let r = 0; r < rows; r++) {
       for (let a = 0; a < across; a++) {
@@ -2074,7 +2216,7 @@ function buildInstancedProps(ctx) {
           const jitter = (bagRng() - 0.5) * 0.06;
           bagItems.push({
             x: x + (alongX ? t * length + jitter : offA),
-            y: 0.11 + r * 0.195,
+            y: 0.11 + r * courseStep,
             z: z + (alongX ? offA : t * length + jitter),
             ry: (alongX ? 0 : Math.PI / 2) + (bagRng() - 0.5) * 0.22,
             s: 1,
@@ -2084,8 +2226,10 @@ function buildInstancedProps(ctx) {
     }
   }
   makeInstanced(ctx, bagGeo, M.sandbag, bagItems, 'sandbags', 'fabric', { seed: 43 });
+  }
 
   // ---- palm trees: trunk + frond crown ----
+  if (want('palms')) {
   const palmItems = L.palms;
   const trunkGeo = new THREE.CylinderGeometry(0.11, 0.2, 2.8, 7, 3);
   trunkGeo.translate(0, 1.4, 0);
@@ -2136,8 +2280,10 @@ function buildInstancedProps(ctx) {
     'wood',
     { seed: 45 }
   );
+  }
 
   // ---- rubble & loose stones ----
+  if (want('rubble')) {
   const rockGeo = new THREE.IcosahedronGeometry(0.22, 0);
   const rockItems = [];
   const rockRng = makeRNG(551);
@@ -2147,7 +2293,11 @@ function buildInstancedProps(ctx) {
     [22.0, -20.5, 7], [-22.5, -20.8, 8], [-11.5, -25.5, 7], [12.0, -17.0, 6],
     [-28.0, -30.5, 9], [28.5, -30.4, 9], [-25.0, 22.0, 6], [25.0, -31.0, 6],
   ];
-  for (const [cx, cz, count] of rubbleSpots) {
+  if (stage) {
+    for (let i = 0; i < 7; i++) {
+      rockItems.push({ x: ((i % 3) - 1) * 0.42, y: 0.07 + (i % 2) * 0.05, z: (Math.floor(i / 3) - 1) * 0.36, ry: i * 1.13, rx: (i % 3) * 0.12 - 0.12, s: 0.55 + (i % 3) * 0.28 });
+    }
+  } else for (const [cx, cz, count] of rubbleSpots) {
     for (let i = 0; i < count; i++) {
       rockItems.push({
         x: cx + (rockRng() - 0.5) * 3.6,
@@ -2160,34 +2310,57 @@ function buildInstancedProps(ctx) {
     }
   }
   makeInstanced(ctx, rockGeo, M.stoneDark, rockItems, 'rubble', 'stone', { seed: 46, castShadow: false });
+  }
 
   // ---- tires ----
+  if (want('tires')) {
   const tireGeo = new THREE.TorusGeometry(0.4, 0.15, 8, 16);
   const tireItems = [];
-  for (const [x, z, n] of [[-12.4, 22.6, 3], [26.4, 21.4, 4], [-29.6, -11.8, 2], [13.6, -30.6, 3]]) {
+  if (stage) {
+    for (let i = 0; i < 4; i++) tireItems.push({ x: 0, y: 0.16 + i * 0.3, z: 0, rx: Math.PI / 2, s: 1 });
+  } else for (const [x, z, n] of L.tireStacks) {
     for (let i = 0; i < n; i++) tireItems.push({ x, y: 0.16 + i * 0.3, z, rx: Math.PI / 2, s: 1 });
   }
   makeInstanced(ctx, tireGeo, M.rubber, tireItems, 'tires', 'metal', { seed: 47 });
+  }
 
   // ---- sack piles / market goods ----
+  if (want('sacks')) {
   const sackGeo = new THREE.SphereGeometry(0.42, 7, 5);
   sackGeo.scale(1.0, 0.8, 0.75);
   const sackItems = [];
   const sackRng = makeRNG(881);
-  for (const [cx, cz, n] of [[10.2, 14.2, 5], [-10.2, 14.2, 4], [10.2, 5.0, 3], [-10.2, 5.0, 5], [-15.8, -23.2, 3], [16.4, -23.0, 3]]) {
-    for (let i = 0; i < n; i++) {
-      sackItems.push({
-        x: cx + (sackRng() - 0.5) * 1.6,
-        y: 0.28 + (i % 2) * 0.34,
-        z: cz + (sackRng() - 0.5) * 1.1,
-        ry: sackRng() * TAU,
-        s: 0.8 + sackRng() * 0.3,
-      });
+  if (stage) {
+    for (let i = 0; i < 6; i++) {
+      sackItems.push({ x: ((i % 3) - 1) * 0.5, y: 0.28 + (i > 2 ? 0.34 : 0), z: (Math.floor(i / 3) - 0.5) * 0.6, ry: i * 1.7, s: 0.85 + (i % 3) * 0.08 });
+    }
+  } else {
+    for (const [cx, cz, n] of [[10.2, 14.2, 5], [-10.2, 14.2, 4], [10.2, 5.0, 3], [-10.2, 5.0, 5]]) {
+      for (let i = 0; i < n; i++) {
+        sackItems.push({
+          x: cx + (sackRng() - 0.5) * 1.6,
+          y: 0.28 + (i % 2) * 0.34,
+          z: cz + (sackRng() - 0.5) * 1.1,
+          ry: sackRng() * TAU,
+          s: 0.8 + sackRng() * 0.3,
+        });
+      }
+    }
+    // bomb-site piles are a tight heap — they now have matching small colliders
+    for (const [cx, cz] of L.sackPiles) {
+      for (let i = 0; i < 3; i++) {
+        sackItems.push({
+          x: cx + (i - 1) * 0.5 + (sackRng() - 0.5) * 0.18,
+          y: 0.26 + (i === 1 ? 0.34 : 0),
+          z: cz + (i % 2 ? 0.28 : -0.28) + (sackRng() - 0.5) * 0.18,
+          ry: sackRng() * TAU,
+          s: 0.82 + sackRng() * 0.08,
+        });
+      }
     }
   }
   makeInstanced(ctx, sackGeo, M.sandbag, sackItems, 'sacks', 'fabric', { seed: 48 });
-
-  ctx.instanced = { crates: crateMesh };
+  }
 }
 
 // ------------------------------------------------------------------- the well
@@ -2237,10 +2410,11 @@ function buildWell(ctx) {
   const bucketGeo = new THREE.CylinderGeometry(0.22, 0.18, 0.34, 9, 1, true);
   ctx.batcher.add('rust', bucketGeo, matrixFor(w.x, 0.85, w.z - 1.2));
   bucketGeo.dispose();
-  // canopy cloth over the well
-  ctx.req.awnings.push({ type: 'canopy', x: w.x, y: 3.75, z: w.z, w: 4.4, d: 4.4, key: 'awning', pitch: 0.22, ry: 0.4, postH: 3.3, posts: [] });
-  // hanging lantern
-  ctx.req.lanterns.push({ x: w.x + 1.3, y: 2.9, z: w.z + 1.3, kind: 'warm', size: 0.3, hang: 3.25 });
+  // canopy cloth draped over the winch frame top beams (y 3.2, top face 3.29) —
+  // it used to float 0.45 m above the posts, yawed 0.4 rad off the square frame
+  ctx.req.awnings.push({ type: 'canopy', x: w.x, y: 3.32, z: w.z, w: 4.0, d: 4.0, key: 'awning', pitch: 0.06, ry: 0, postH: 3.3, posts: [] });
+  // hanging lantern, rod top meets the +z frame beam
+  ctx.req.lanterns.push({ x: w.x + 1.2, y: 2.86, z: w.z + 1.7, kind: 'warm', size: 0.3, hang: 3.3 });
   ctx.req.lights.push({ x: w.x, y: 2.9, z: w.z, color: 0xffa050, intensity: 7, distance: 8, kind: 'flicker' });
   // water jars beside it
   for (const [ox, oz] of [[2.6, 1.2], [2.9, 0.2]]) {
@@ -2311,10 +2485,12 @@ function buildTruck(ctx) {
   // tarp cover over the cargo bed
   part('tarp', -1.9, 2.22, 0, 3.3, 0.5, 2.16, 1.6);
   for (let i = 0; i < 4; i++) {
-    const hoop = new THREE.TorusGeometry(1.05, 0.035, 5, 10, Math.PI);
+    // hoops were drawn flat in the XY plane (sticking out fore/aft); rotate them into
+    // the YZ plane so they actually arch over the bed under the tarp
+    const hoop = new THREE.TorusGeometry(0.95, 0.035, 5, 10, Math.PI);
     const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(-0.6 - i * 0.9, 1.55, 0),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0, 'YXZ')),
+      new THREE.Vector3(-0.6 - i * 0.9, 1.5, 0),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0, 'YXZ')),
       new THREE.Vector3(1, 1, 1)
     );
     m.premultiply(base);
@@ -2328,11 +2504,12 @@ function buildTruck(ctx) {
   wheel(-1.5, -1.16);
   wheel(-2.6, 1.16);
   wheel(-2.6, -1.16);
-  // roll bar + antenna + spotlight
-  for (const z of [-1.0, 1.0]) {
-    const bar = new THREE.CylinderGeometry(0.055, 0.055, 0.95, 6);
+  // cargo headboard hoop: posts rise from the bed top and a top rail joins them
+  // (the old pair of stubs hovered above the tarp with nothing under them)
+  for (const z of [-0.95, 0.95]) {
+    const bar = new THREE.CylinderGeometry(0.055, 0.055, 1.04, 6);
     const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(-2.6, 2.4, z),
+      new THREE.Vector3(-2.6, 1.98, z),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0, 'YXZ')),
       new THREE.Vector3(1, 1, 1)
     );
@@ -2340,6 +2517,7 @@ function buildTruck(ctx) {
     ctx.batcher.add('metalDark', bar, m);
     bar.dispose();
   }
+  part('metalDark', -2.6, 2.52, 0, 0.07, 0.07, 2.0, 1);
   const ant = new THREE.CylinderGeometry(0.02, 0.03, 2.1, 5);
   const am = new THREE.Matrix4().compose(
     new THREE.Vector3(-1.1, 2.7, 0.95),
@@ -2368,10 +2546,11 @@ function buildStalls(ctx) {
     for (const [ox, oz] of [[-1.55, -1.45], [1.55, -1.45], [-1.55, 1.45], [1.55, 1.45]]) {
       boxBatch(ctx, 'wood', s.x + ox, 1.3, s.z + oz, 0.13, 2.6, 0.13, { tile: 1.1 });
     }
-    // cross beam + awning
+    // cross beam + awning: flat cloth resting on the 2.60 m post tops / 2.62 m beam
+    // (the old 0.3 rad pitch buried the front edge 0.34 m under the beam)
     boxBatch(ctx, 'wood', s.x, 2.56, s.z + 1.45, 3.2, 0.12, 0.12, { tile: 1.3 });
     ctx.req.awnings.push({
-      type: 'awning', x: s.x, y: 2.72, z: s.z, ry: 0, w: 3.3, d: 3.0, key: 'awning', pitch: 0.3,
+      type: 'awning', x: s.x, y: 2.64, z: s.z, ry: 0, w: 3.3, d: 3.0, key: 'awning', pitch: 0,
     });
     // goods
     for (let i = 0; i < 4; i++) {
@@ -2403,35 +2582,42 @@ function buildStalls(ctx) {
 function buildWindmill(ctx) {
   const w = ctx.data.layout.hero.windmill;
   const B = ctx.batcher;
-  // splayed legs
+  // legs on the cardinal axes: the splayed silhouette plus the axis-aligned collision
+  // box means diagonal legs would leave the box faces without geometry behind them
+  const legTopR = 0.3;
+  const legBaseR = 0.95;
+  const legTopY = 6.3;
   for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * TAU + Math.PI / 4;
-    const x = w.x + Math.cos(a) * 0.85;
-    const z = w.z + Math.sin(a) * 0.85;
-    const g = boxGeometryWorldUV(0.2, 6.4, 0.2, 1.2);
-    const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(w.x + Math.cos(a) * 0.45, 3.2, w.z + Math.sin(a) * 0.45),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(a) * 0.09, 0, -Math.cos(a) * 0.09, 'YXZ')),
-      new THREE.Vector3(1, 1, 1)
+    const a = (i / 4) * TAU;
+    rodBetween(
+      ctx, 'wood',
+      w.x + Math.cos(a) * legBaseR, 0, w.z + Math.sin(a) * legBaseR,
+      w.x + Math.cos(a) * legTopR, legTopY, w.z + Math.sin(a) * legTopR,
+      0.1, 5, 1.3
     );
-    B.add('wood', g, m);
-    g.dispose();
-    void x;
-    void z;
   }
-  // cross braces
-  for (let i = 0; i < 3; i++) {
-    const y = 1.4 + i * 1.9;
-    const g = boxGeometryWorldUV(1.7, 0.12, 0.12, 1.2);
-    B.add('wood', g, matrixFor(w.x, y, w.z, 0, 0.4 + i * 0.5));
-    g.dispose();
+  // horizontal bracing rings between adjacent legs at three heights
+  for (const y of [1.6, 3.4, 5.2]) {
+    const r = legBaseR + ((legTopR - legBaseR) * y) / legTopY;
+    for (let i = 0; i < 4; i++) {
+      const a0 = (i / 4) * TAU;
+      const a1 = ((i + 1) / 4) * TAU;
+      rodBetween(ctx, 'wood', w.x + Math.cos(a0) * r, y, w.z + Math.sin(a0) * r, w.x + Math.cos(a1) * r, y, w.z + Math.sin(a1) * r, 0.055, 4);
+    }
   }
   // platform + hub + tail
   boxBatch(ctx, 'wood', w.x, 6.35, w.z, 1.9, 0.18, 1.9, { tile: 1.4 });
   const hub = new THREE.CylinderGeometry(0.22, 0.22, 0.5, 8);
   ctx.batcher.add('metalDark', hub, matrixFor(w.x, 6.65, w.z + 0.85, Math.PI / 2));
   hub.dispose();
+  // tail vane panel, now carried by a real boom off the platform (it used to float)
   boxBatch(ctx, 'sheet', w.x, 6.6, w.z - 1.6, 0.1, 0.7, 1.5, { tile: 1.2 });
+  boxBatch(ctx, 'wood', w.x, 6.55, w.z - 1.28, 0.12, 0.12, 0.78, { tile: 1.2 });
+  for (const s of [-1, 1]) {
+    rodBetween(ctx, 'wood', w.x + s * 0.72, 6.44, w.z - 0.88, w.x + s * 0.05, 6.54, w.z - 1.58, 0.045, 4);
+  }
+  // head axle from the hub to the rotor plane (sails now visibly attach)
+  rodBetween(ctx, 'metalDark', w.x, 6.65, w.z + 0.9, w.x, 6.65, w.z + 1.18, 0.06, 6);
 
   // rotating blade assembly
   const rotor = new THREE.Group();
@@ -2458,7 +2644,8 @@ function buildWindmill(ctx) {
   ctx.scene.add(rotor);
   ctx.objects.push(rotor);
   ctx.animated.push({ kind: 'rotor', obj: rotor, speed: 0.22, axis: 'z' });
-  ctx.req.lanterns.push({ x: w.x, y: 5.9, z: w.z, kind: 'warm', size: 0.2 });
+  // lantern hangs from the platform underside instead of floating in mid-air
+  ctx.req.lanterns.push({ x: w.x + 0.55, y: 5.72, z: w.z + 0.55, kind: 'warm', size: 0.2, hang: 6.26 });
 }
 
 // ------------------------------------------------------------------- radar mast
@@ -2471,8 +2658,10 @@ function buildRadar(ctx) {
   pad.dispose();
   const H = 11.5;
   const legOff = 0.9;
+  // legs on the cardinal axes so the axis-aligned collider faces always have a leg
+  // behind them (diagonal lattice legs made the collider read as an air wall)
   for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * TAU + Math.PI / 4;
+    const a = (i / 4) * TAU;
     const x0 = Math.cos(a) * legOff;
     const z0 = Math.sin(a) * legOff;
     const x1 = Math.cos(a) * 0.28;
@@ -2496,38 +2685,52 @@ function buildRadar(ctx) {
     }
     g.dispose();
   }
-  // dish assembly
-  const dishGroup = new THREE.Group();
-  dishGroup.position.set(r.x, H, r.z);
-  const dishGeo = new THREE.SphereGeometry(1.35, 16, 8, 0, TAU, 0, Math.PI * 0.42);
-  const dish = new THREE.Mesh(dishGeo, ctx.materials.metalDark);
-  dish.rotation.x = -Math.PI * 0.55;
-  dish.position.y = 0.65;
-  dish.castShadow = true;
-  dishGroup.add(dish);
-  const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 0.9, 6), ctx.materials.rust);
-  horn.position.set(0, 0.95, 0.55);
-  horn.rotation.x = 1.0;
-  dishGroup.add(horn);
-  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), ctx.materials.glowCyan);
-  beacon.position.set(0, 1.35, -0.3);
-  dishGroup.add(beacon);
-  ctx.scene.add(dishGroup);
-  ctx.objects.push(dishGroup);
-  ctx.animated.push({ kind: 'radar', obj: dishGroup, speed: 0.35, material: ctx.materials.glowCyan, beacon });
-  ctx.req.lanterns.push({ x: r.x, y: H + 1.5, z: r.z, kind: 'cyan', size: 0.18 });
-  // guy wires
+  // ---- guy wires: mast ring → concrete ground anchors (both ends used to float) ----
+  const mastRingY = 10.4;
+  const anchorR = 3.3;
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * TAU + Math.PI / 4;
-    const g = boxGeometryWorldUV(0.035, 6.4, 0.035, 1);
-    const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(r.x + Math.cos(a) * 3.6, 3.2, r.z + Math.sin(a) * 3.6),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55, 'YXZ')),
-      new THREE.Vector3(1, 1, 1)
-    );
-    ctx.batcher.add('metalDark', g, m);
-    g.dispose();
+    const ax = r.x + Math.cos(a) * anchorR;
+    const az = r.z + Math.sin(a) * anchorR;
+    rodBetween(ctx, 'metalDark', r.x + Math.cos(a) * 0.5, mastRingY, r.z + Math.sin(a) * 0.5, ax, 0.16, az, 0.022, 4);
+    // low anchor footing (0.2 m — walked over, no collider required)
+    boxBatch(ctx, 'stoneDark', ax, 0.1, az, 0.44, 0.2, 0.44, { tile: 0.9 });
+    boxBatch(ctx, 'metalDark', ax, 0.24, az, 0.1, 0.12, 0.1, { tile: 0.6 });
   }
+  // ---- yoke / neck carrying the dish, seated on the lattice top ----
+  cylinderBatch(ctx, 'metalDark', r.x, H + 0.3, r.z, 0.09, 0.16, 0.62, 8);
+  boxBatch(ctx, 'metalDark', r.x, H + 0.62, r.z, 0.5, 0.08, 0.5, { tile: 0.8 });
+  // ---- dish assembly: a shallow lathe bowl (double-sided so the concave face reads),
+  //      feed horn seated on the bowl axis + emissive receiver beacon at its tip ----
+  const dishGroup = new THREE.Group();
+  dishGroup.position.set(r.x, H + 0.66, r.z);
+  const dishMat = ctx.materials.metalDark.clone();
+  dishMat.side = THREE.DoubleSide;
+  dishMat.name = 'radar-dish';
+  ctx.materialsCustom.push(dishMat);
+  const dishProfile = [
+    [0.0, 0.34], [0.3, 0.3], [0.62, 0.18], [0.92, 0.0], [1.16, -0.2], [1.24, -0.3],
+    [1.22, -0.36], [1.16, -0.32], [0.96, -0.14], [0.68, 0.02], [0.32, 0.16], [0.0, 0.2],
+  ].map(([px, py]) => new THREE.Vector2(px, py));
+  const dishGeo = new THREE.LatheGeometry(dishProfile, 22);
+  const dish = new THREE.Mesh(dishGeo, dishMat);
+  const dishDir = new THREE.Vector3(-0.8, 0.25, 0.55).normalize();
+  const dishQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dishDir);
+  dish.quaternion.copy(dishQuat);
+  dish.position.y = 0.35;
+  dish.castShadow = true;
+  dishGroup.add(dish);
+  const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.045, 0.42, 8), ctx.materials.rust);
+  horn.quaternion.copy(dishQuat);
+  horn.position.set(0, 0.35, 0).addScaledVector(dishDir, 0.55);
+  dishGroup.add(horn);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), ctx.materials.glowCyan);
+  beacon.position.set(0, 0.35, 0).addScaledVector(dishDir, 0.82);
+  dishGroup.add(beacon);
+  ctx.scene.add(dishGroup);
+  ctx.objects.push(dishGroup, horn, dish);
+  ctx.animated.push({ kind: 'radar', obj: dishGroup, speed: 0.35, material: ctx.materials.glowCyan, beacon });
+  ctx.req.lanterns.push({ x: r.x - 0.7, y: H + 0.9, z: r.z + 0.5, kind: 'cyan', size: 0.18 });
 }
 
 // ------------------------------------------------------------------- carts
@@ -2572,11 +2775,15 @@ function buildCarts(ctx) {
     part(0.55, 1.12, 0.1, 0.6, 0.4, 0.55, 'crate');
   }
   const p = ctx.data.layout.hero.cartPlaza;
-  cart(p.x, p.z, 0.35, 1.0);
   const a = ctx.data.layout.hero.aLongCart;
+  if (ctx.stagePick === 'cart') {
+    cart(0, 0, 0.35, 1.0);
+    return;
+  }
+  cart(p.x, p.z, 0.35, 1.0);
   cart(a.x, a.z, -0.5, 1.15);
   // tipped cart at B site exit
-  cart(-21.2, -18.2, 1.2, 0.95);
+  cart(-22.6, -18.0, 1.2, 0.95);
 }
 
 // ---------------------------------------------------------------- campfire
@@ -2603,21 +2810,23 @@ function buildCampfire(ctx) {
   coals.dispose();
   ctx.req.lights.push({ x: c.x, y: 0.8, z: c.z, color: 0xff7a2f, intensity: 6.5, distance: 7.5, kind: 'fire' });
   ctx.req.lanterns.push({ x: c.x, y: 0.5, z: c.z, kind: 'fire', size: 0.5 });
-  // cooking tripod
+  // cooking tripod: three legs converge into an apex ring above the fire (they used
+  // to splay apart in the air), with a chain hanging the pot under the apex
+  const apexY = 1.92;
   for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * TAU;
-    const g = new THREE.CylinderGeometry(0.035, 0.045, 2.1, 5);
-    const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(c.x + Math.cos(a) * 0.55, 1.0, c.z + Math.sin(a) * 0.55),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35, 'YXZ')),
-      new THREE.Vector3(1, 1, 1)
-    );
-    ctx.batcher.add('metalDark', g, m);
-    g.dispose();
+    const a = (i / 3) * TAU + 0.4;
+    rodBetween(ctx, 'metalDark', c.x + Math.cos(a) * 0.66, 0, c.z + Math.sin(a) * 0.66, c.x, apexY, c.z, 0.038, 5);
   }
+  const apexRing = new THREE.TorusGeometry(0.08, 0.02, 5, 10);
+  ctx.batcher.add('metalDark', apexRing, matrixFor(c.x, apexY, c.z, Math.PI / 2));
+  apexRing.dispose();
+  rodBetween(ctx, 'metalDark', c.x, apexY, c.z, c.x, 1.6, c.z, 0.014, 4);
   const pot = new THREE.CylinderGeometry(0.22, 0.18, 0.28, 10);
-  ctx.batcher.add('metal', pot, matrixFor(c.x, 1.15, c.z));
+  ctx.batcher.add('metal', pot, matrixFor(c.x, 1.44, c.z));
   pot.dispose();
+  const bail = new THREE.TorusGeometry(0.17, 0.013, 4, 10, Math.PI);
+  ctx.batcher.add('metalDark', bail, matrixFor(c.x, 1.58, c.z));
+  bail.dispose();
   ctx.req.smoke.push({ x: c.x, y: 0.7, z: c.z, spread: 0.6, rate: 0.5, count: 24, rise: 2.6, color: 0x6a5a48, scale: 0.9 });
 }
 
@@ -2625,14 +2834,39 @@ function buildCampfire(ctx) {
 
 function buildAPlatform(ctx) {
   const p = ctx.data.layout.hero.aPlatform;
+  // 4 corner legs matching the collision boxes (the deck used to float, held only by
+  // the ladder), with stone pads and top knee braces kept above head height
+  for (const [ox, oz] of [[-p.w / 2 + 0.2, -p.d / 2 + 0.2], [p.w / 2 - 0.2, -p.d / 2 + 0.2], [-p.w / 2 + 0.2, p.d / 2 - 0.2], [p.w / 2 - 0.2, p.d / 2 - 0.2]]) {
+    const lx = p.x + ox;
+    const lz = p.z + oz;
+    baseBox(ctx, 'stone', lx, lz, 0.34, 0.22, 0.34, { tile: 0.9 });
+    baseBox(ctx, 'wood', lx, lz, 0.28, p.h - 0.02, 0.28, { tile: 1.1 });
+  }
   // deck
   boxBatch(ctx, 'wood', p.x, p.h + 0.1, p.z, p.w, 0.22, p.d, { tile: 1.5 });
-  // railings
+  // braces under the deck (above head height, purely visual)
+  for (const s of [-1, 1]) {
+    for (const t of [-1, 1]) {
+      rodBetween(ctx, 'wood', p.x + s * 1.3, 2.2, p.z + t * 1.1, p.x - s * 1.3, 2.95, p.z + t * 1.1, 0.05, 4);
+    }
+    boxBatch(ctx, 'wood', p.x + s * (p.w / 2 - 0.22), 2.9, p.z, 0.12, 0.12, p.d - 0.5, { tile: 1.1 });
+  }
+  boxBatch(ctx, 'wood', p.x, 2.9, p.z, p.w - 0.5, 0.12, 0.12, { tile: 1.1 });
+  // railings (south face has a 1.0 m hatch gap where the ladder lands)
   for (const s of [-1, 1]) {
     boxBatch(ctx, 'wood', p.x + s * (p.w / 2 - 0.1), p.h + 0.75, p.z, 0.12, 1.1, p.d, { tile: 1.2 });
-    boxBatch(ctx, 'wood', p.x, p.h + 0.75, p.z + s * (p.d / 2 - 0.1), p.w, 1.1, 0.12, { tile: 1.2 });
+    const zr = p.z + s * (p.d / 2 - 0.1);
+    if (s < 0) {
+      for (const q of [-1, 1]) {
+        const segW = p.w / 2 - 0.5;
+        boxBatch(ctx, 'wood', p.x + q * (segW / 2 + 0.5), p.h + 0.75, zr, segW, 1.1, 0.12, { tile: 1.2 });
+        boxBatch(ctx, 'wood', p.x + q * (segW / 2 + 0.5), p.h + 1.25, zr, segW, 0.1, 0.1, { tile: 1.2 });
+      }
+    } else {
+      boxBatch(ctx, 'wood', p.x, p.h + 0.75, zr, p.w, 1.1, 0.12, { tile: 1.2 });
+      boxBatch(ctx, 'wood', p.x, p.h + 1.25, zr, p.w, 0.1, 0.1, { tile: 1.2 });
+    }
     boxBatch(ctx, 'wood', p.x + s * (p.w / 2 - 0.1), p.h + 1.25, p.z, 0.1, 0.1, p.d, { tile: 1.2 });
-    boxBatch(ctx, 'wood', p.x, p.h + 1.25, p.z + s * (p.d / 2 - 0.1), p.w, 0.1, 0.1, { tile: 1.2 });
   }
   // ladder
   for (const s of [-1, 1]) {
@@ -2647,8 +2881,8 @@ function buildAPlatform(ctx) {
     ctx.batcher.add('tarp', bag, matrixFor(p.x - 0.7 + i * 0.62, p.h + 0.3, p.z + p.d / 2 - 0.35, 0, i * 1.1, 0, 1, 0.42, 0.62));
     bag.dispose();
   }
-  // A-site signal lamp
-  ctx.req.lanterns.push({ x: p.x, y: p.h + 1.6, z: p.z - p.d / 2 + 0.15, kind: 'warm', size: 0.22 });
+  // A-site signal lamp hung from the top rail (it used to float beside the platform)
+  ctx.req.lanterns.push({ x: p.x, y: 4.02, z: p.z - p.d / 2 + 0.2, kind: 'warm', size: 0.22, hang: 4.2 });
   ctx.req.lights.push({ x: p.x, y: p.h + 1.2, z: p.z, color: 0xffa050, intensity: 5, distance: 8, kind: 'accent' });
 }
 
@@ -2657,12 +2891,14 @@ function buildAPlatform(ctx) {
 function buildBWreck(ctx) {
   const w = ctx.data.layout.hero.bWreck;
   const rng = makeRNG(744);
-  // broken chassis/shell plates
+  // broken chassis/shell plates, settled onto the sand (minY ≈ 0)
   for (let i = 0; i < 7; i++) {
     const g = boxGeometryWorldUV(0.5 + rng() * 0.9, 0.08 + rng() * 0.2, 0.3 + rng() * 0.6, 1.4);
-    ctx.batcher.add('rust', g, matrixFor(w.x + (rng() - 0.5) * 2.2, 0.25 + i * 0.08, w.z + (rng() - 0.5) * 1.6, rng() * 0.8, rng() * TAU));
+    ctx.batcher.add('rust', g, matrixFor(w.x + (rng() - 0.5) * 2.2, 0.22 + i * 0.08, w.z + (rng() - 0.5) * 1.6, rng() * 0.8, rng() * TAU));
     g.dispose();
   }
+  // broken mount ring under the shattered core (it used to hover at y 0.55)
+  cylinderBatch(ctx, 'stoneDark', w.x + 0.2, 0.17, w.z, 0.26, 0.34, 0.34, 6);
   // shattered core
   const core = new THREE.IcosahedronGeometry(0.3, 0);
   ctx.batcher.add('glowCyan', core, matrixFor(w.x + 0.2, 0.55, w.z));
@@ -2675,6 +2911,26 @@ function buildBWreck(ctx) {
 // ------------------------------------------------------- north wall pipeline
 
 function buildPipeline(ctx) {
+  if (ctx.stagePick === 'pipeline') {
+    // compact 6 m sample of the north-wall pipe run for isolated inspection
+    for (const [y, r] of [[1.35, 0.16], [1.9, 0.11]]) {
+      const g = new THREE.CylinderGeometry(r, r, 6, 8);
+      ctx.batcher.add('rust', g, matrixFor(0, y, 0, 0, 0, Math.PI / 2));
+      g.dispose();
+    }
+    for (let x = -2.4; x <= 2.4; x += 2.4) {
+      const bracket = boxGeometryWorldUV(0.14, 1.4, 0.5, 1);
+      ctx.batcher.add('metalDark', bracket, matrixFor(x, 1.4, -0.25));
+      bracket.dispose();
+    }
+    const wheel = new THREE.TorusGeometry(0.3, 0.045, 6, 12);
+    ctx.batcher.add('metalDark', wheel, matrixFor(1.4, 1.7, 0.25));
+    wheel.dispose();
+    const stem = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 5);
+    ctx.batcher.add('metalDark', stem, matrixFor(1.4, 1.53, 0.15, Math.PI / 2));
+    stem.dispose();
+    return;
+  }
   // rusty pipe run + valve wheels along the north wall
   for (const [y, r] of [[1.35, 0.16], [1.9, 0.11]]) {
     const g = new THREE.CylinderGeometry(r, r, 62, 8);
@@ -2690,14 +2946,108 @@ function buildPipeline(ctx) {
     const wheel = new THREE.TorusGeometry(0.3, 0.045, 6, 12);
     ctx.batcher.add('metalDark', wheel, matrixFor(x, y + 0.35, -32.2, 0, 0, 0));
     wheel.dispose();
+    // hub block ties the wheel centre back onto the stem
+    boxBatch(ctx, 'metalDark', x, y + 0.35, -32.24, 0.1, 0.1, 0.16, { tile: 0.6 });
     const stem = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 5);
     ctx.batcher.add('metalDark', stem, matrixFor(x, y + 0.18, -32.3, Math.PI / 2));
     stem.dispose();
   }
 }
 
+// --------------------------------------------------- street lamp posts (layout)
+
+/**
+ * The 20 `layout.lampPosts` entries only had collision boxes. Each one is now a real
+ * post: stone plinth, tapered metal pole, cantilever arm over the walkway and a warm
+ * lantern head. The head glow is a lantern sprite (no extra PointLights — the light
+ * budget is unchanged), while the emissive glass still reads at golden hour.
+ */
+function buildLampPosts(ctx) {
+  const posts = ctx.data.layout.lampPosts;
+  for (const [x, z] of posts) {
+    // plinth + pole
+    baseBox(ctx, 'stone', x, z, 0.36, 0.28, 0.36, { tile: 1.0 });
+    cylinderBatch(ctx, 'metalDark', x, 1.8, z, 0.055, 0.09, 3.04, 8);
+    boxBatch(ctx, 'metal', x, 0.42, z, 0.2, 0.12, 0.2, { tile: 0.8 });
+    // arm points across the nearest street/plaza (inwards towards x=0)
+    const dirX = Math.abs(x) >= 1 ? -Math.sign(x) : 0;
+    const dirZ = dirX === 0 ? (z >= 0 ? -1 : 1) : 0;
+    const ry = Math.atan2(dirX, dirZ);
+    const armLen = 0.52;
+    boxBatch(ctx, 'metalDark', x + dirX * armLen * 0.5, 3.08, z + dirZ * armLen * 0.5, 0.09, 0.09, armLen + 0.16, { tile: 0.9, ry });
+    const hx = x + dirX * armLen;
+    const hz = z + dirZ * armLen;
+    boxBatch(ctx, 'metalDark', hx, 3.02, hz, 0.3, 0.06, 0.3, { tile: 0.8, ry });
+    boxBatch(ctx, 'glowWarm', hx, 2.86, hz, 0.22, 0.26, 0.22, { tile: 0.6, ry });
+    for (const s of [-1, 1]) {
+      boxBatch(ctx, 'metalDark', hx + s * 0.15, 2.86, hz, 0.03, 0.3, 0.03, { tile: 0.6 });
+      boxBatch(ctx, 'metalDark', hx, 2.86, hz + s * 0.15, 0.03, 0.3, 0.03, { tile: 0.6 });
+    }
+    ctx.req.lanterns.push({ x: hx, y: 2.84, z: hz, kind: 'warm', size: 0.3 });
+  }
+}
+
+/** Staging hero flagpoles (the flag cloth already hangs from `hero.flagpoles`). */
+function buildFlagpoles(ctx) {
+  for (const f of ctx.data.layout.hero.flagpoles) {
+    baseBox(ctx, 'stone', f.x, f.z, 0.5, 0.34, 0.5, { tile: 1.0 });
+    cylinderBatch(ctx, 'wood', f.x, 3.95, f.z, 0.1, 0.14, 7.3, 8);
+    // finial + halyard cleat (the cleat also gives the hanging cloth a real fitting)
+    cylinderBatch(ctx, 'stone', f.x, 7.76, f.z, 0.015, 0.1, 0.3, 8);
+    boxBatch(ctx, 'metalDark', f.x, 7.42, f.z, 0.16, 0.06, 0.16, { tile: 0.6 });
+    boxBatch(ctx, 'metalDark', f.x, 6.15, f.z, 0.26, 0.07, 0.26, { tile: 0.6 });
+  }
+}
+
+/** A-long shade: three posts against the east boundary wall + the shade cloth. */
+function buildALongShade(ctx) {
+  const sh = ctx.data.layout.hero.aLongShade;
+  const zs = sh.zs;
+  const wallX = sh.x + 1.3;   // east boundary wall inner face sits 1.3 m outboard
+  for (const z of zs) {
+    baseBox(ctx, 'wood', sh.x, z, 0.3, 0.16, 0.3, { tile: 1.0 });
+    boxBatch(ctx, 'wood', sh.x, 1.75, z, 0.24, 3.18, 0.24, { tile: 1.1 });
+    // diagonal brace into the wall ledger
+    rodBetween(ctx, 'wood', sh.x + 0.1, 3.0, z, wallX, 3.26, z, 0.05, 4);
+  }
+  // ledger beam bolted along the wall + shade cloth from the posts to the wall
+  const zMid = (zs[0] + zs[zs.length - 1]) / 2;
+  const zLen = zs[zs.length - 1] - zs[0] + 0.6;
+  boxBatch(ctx, 'wood', wallX, 3.3, zMid, 0.14, 0.14, zLen, { tile: 1.2 });
+  ctx.req.awnings.push({
+    type: 'awning', x: (sh.x + wallX) / 2, y: 3.38, z: zMid, w: wallX - sh.x + 0.12, d: zLen + 0.3, key: 'shade', pitch: 0, ry: 0,
+  });
+}
+
+/**
+ * Loose dressing that previously only existed as bare collision boxes: the two
+ * staging lumber stacks and the two site scrap heaps. Each matches its solid.
+ */
+function buildLooseProps(ctx) {
+  // staging lumber / plank stacks (solids: 1.1×0.7×0.8 and 1.2×0.7×0.75 wood)
+  for (const [x, z, w, d, h] of [[-19.5, 30.8, 1.1, 0.7, 0.8], [19.6, 30.6, 1.2, 0.7, 0.75]]) {
+    const rows = 4;
+    for (let i = 0; i < rows; i++) {
+      boxBatch(ctx, 'wood', x + (i % 2 ? 0.03 : -0.02), (i + 0.5) * (h / rows), z, w - 0.02, (h / rows) * 0.86, d, { tile: 1.2, ry: i % 2 ? 0.05 : -0.04 });
+    }
+    boxBatch(ctx, 'woodDark', x, h + 0.03, z, w * 0.5, 0.06, d * 0.9, { tile: 1.0 });
+  }
+  // site scrap heaps (solids: 1.0×1.0×0.7 metal at both bomb sites)
+  for (const [x, z] of [[-15.2, -24.8], [15.4, -24.6]]) {
+    boxBatch(ctx, 'rust', x, 0.12, z, 0.94, 0.24, 0.7, { tile: 1.2 });
+    boxBatch(ctx, 'rust', x - 0.03, 0.33, z + 0.04, 0.82, 0.18, 0.6, { tile: 1.2, ry: 0.18 });
+    boxBatch(ctx, 'rust', x + 0.05, 0.5, z - 0.03, 0.66, 0.16, 0.5, { tile: 1.2, ry: -0.24 });
+    boxBatch(ctx, 'metalDark', x, 0.64, z, 0.5, 0.14, 0.4, { tile: 1.2, ry: 0.4 });
+    rodBetween(ctx, 'metalDark', x + 0.32, 0.05, z + 0.3, x + 0.05, 0.95, z + 0.02, 0.035, 5);
+  }
+}
+
 function buildProps(ctx) {
   buildInstancedProps(ctx);
+  buildLampPosts(ctx);
+  buildFlagpoles(ctx);
+  buildALongShade(ctx);
+  buildLooseProps(ctx);
   buildWell(ctx);
   buildTruck(ctx);
   buildStalls(ctx);
@@ -2748,16 +3098,21 @@ function registerCloth(ctx, mesh, geo, type, w, h, amp, phase) {
 function buildCloths(ctx) {
   const rng = makeRNG(1717);
   // banners & flags have been requested by the architecture pass
-  const siteBanners = [
+  const siteBanners = ctx.stage ? [] : [
     { key: 'a', x: 17.5, y: 4.4, z: -32.84, ry: 0, w: 3.2, h: 5.6 },
     { key: 'b', x: -18.0, y: 4.4, z: -32.84, ry: 0, w: 3.2, h: 5.6 },
     { key: 'a', x: 20.6, y: 4.2, z: -29.4, ry: Math.PI * 0.1, w: 2.4, h: 4.2 },
     { key: 'b', x: -20.6, y: 4.2, z: -29.4, ry: -Math.PI * 0.1, w: 2.4, h: 4.2 },
   ];
   for (const b of siteBanners) ctx.req.banners.push({ ...b, sway: 0.05, anchor: 'top' });
-  // staging flag poles
-  for (const f of ctx.data.layout.hero.flagpoles) {
-    ctx.req.flags.push({ x: f.x, y: f.h - 0.35, z: f.z, w: 2.3, h: 1.5, ry: f.x > 0 ? -0.35 : 0.35, key: f.x > 0 ? 'warn' : 'title', phase: rng() * 6 });
+  // staging flag poles (the pole meshes are part of the boundary pass; the stage
+  // preview supplies its own pole proxy and requests the cloth explicitly)
+  if (!ctx.stage) {
+    for (const f of ctx.data.layout.hero.flagpoles) {
+      // cloth hangs from just under the pole top and its readable face is turned to
+      // the staging area (-Z) instead of the south wall (text used to read mirrored)
+      ctx.req.flags.push({ x: f.x, y: f.h - 0.05, z: f.z, w: 2.3, h: 1.5, ry: Math.PI - 0.35, key: f.x > 0 ? 'warn' : 'title', phase: rng() * 6 });
+    }
   }
 
   for (const req of ctx.req.banners) {
@@ -2881,6 +3236,7 @@ function mergePlanes(ctx, requests, getCell, material, name) {
 }
 
 function buildSiteStencils(ctx) {
+  if (ctx.stage) return; // isolated model previews only materialise their own requests
   const d = ctx.req.decals;
   const ground = -Math.PI / 2;
   // bomb-site stencils
@@ -2922,6 +3278,7 @@ function buildSiteStencils(ctx) {
 }
 
 function buildPosterRequests(ctx) {
+  if (ctx.stage) return; // isolated model previews only materialise their own requests
   const d = ctx.req.posters;
   // staging / spawn boards
   d.push({ x: -6.2, y: 2.2, z: 32.86, ry: Math.PI, cell: 'water', w: 1.1, h: 2.0 });
@@ -3403,10 +3760,18 @@ export async function createWorld(scene, renderer, { quality = 'high', onProgres
   for (const m of batchMeshes) objects.push(m);
   // world objects are exactly what this builder added to the scene
   ctx.worldObjects = scene.children.filter((child) => !childrenBefore.has(child));
+  // Rebuild the raycast target list: exactly one entry per solid visual mesh. Skip
+  // batches flagged collide:false (dark recess planes, glass, glow, coals) and drop
+  // the duplicate instanced entries the old two-pass rebuild produced.
   ctx.collideMeshes.length = 0;
+  const seenCollide = new Set();
   for (const obj of ctx.worldObjects) {
-    if (obj.userData && obj.userData.surface) ctx.collideMeshes.push(obj);
-    if (obj.isInstancedMesh) ctx.collideMeshes.push(obj);
+    if (!obj || !obj.isObject3D || seenCollide.has(obj)) continue;
+    const surface = obj.userData && obj.userData.surface;
+    if (!surface && !obj.isInstancedMesh) continue;
+    if (obj.userData && obj.userData.collide === false) continue;
+    seenCollide.add(obj);
+    ctx.collideMeshes.push(obj);
   }
   // make sure the ground counts for raycasts even without a surface on batch registration
   if (ctx.ground && !ctx.collideMeshes.includes(ctx.ground)) ctx.collideMeshes.push(ctx.ground);
@@ -3458,3 +3823,48 @@ export async function createWorld(scene, renderer, { quality = 'high', onProgres
 }
 
 
+
+// ===========================================================================
+// #region DEV MODEL STAGE -- isolated model previews for QA tooling
+// Used only by stage.html / scripts/model-shots.mjs. These exports have no
+// effect on the shipping game: createWorld() never calls anything below.
+// ===========================================================================
+
+export {
+  buildWorldData,
+  createMaterials,
+  StaticBatcher,
+  ensureBatches,
+  buildEnvironment,
+  buildLights,
+  buildBoundary,
+  buildMidWall,
+  buildBazaarRows,
+  buildWarehouseBlocks,
+  buildLowWalls,
+  buildColonnade,
+  buildTunnel,
+  buildSiteArches,
+  addArchMesh,
+  buildInstancedProps,
+  buildWell,
+  buildTruck,
+  buildStalls,
+  buildWindmill,
+  buildRadar,
+  buildCarts,
+  buildCampfire,
+  buildAPlatform,
+  buildBWreck,
+  buildPipeline,
+  buildLampPosts,
+  buildFlagpoles,
+  buildALongShade,
+  buildLooseProps,
+  buildCloths,
+  buildDecalsAndPosters,
+  buildLanterns,
+  buildPracticalLights,
+  buildSiteDressing,
+  mergePlanes,
+};
