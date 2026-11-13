@@ -70,6 +70,22 @@ const CAP_STAR_VM = 32;
 const CAP_CONE = 48;
 
 const QUALITY_PRESETS = {
+  lowest: {
+    density: 0.28,
+    decals: 14,
+    tracers: 8,
+    casings: 6,
+    debris: 10,
+    rich: false,
+  },
+  low: {
+    density: 0.45,
+    decals: 26,
+    tracers: 14,
+    casings: 12,
+    debris: 18,
+    rich: false,
+  },
   medium: {
     density: 0.62,
     decals: 40,
@@ -152,7 +168,7 @@ function paintTexture(w, h, draw, opts) {
 }
 
 function normalizeQuality(value) {
-  return value === 'medium' || value === 'ultra' ? value : 'high';
+  return QUALITY_PRESETS[value] ? value : 'high';
 }
 
 function hexToRgb(hex, out) {
@@ -2503,7 +2519,7 @@ export class Effects {
     }
 
     // --- light --------------------------------------------------------------
-    if (!viewmodel && this.quality !== 'medium') {
+    if (!viewmodel && this._q.rich) {
       this._flashLight(px + dx * 0.1, py + dy * 0.1, pz + dz * 0.1, cr, cg * 0.92, cb * 0.8, 18 * scale, 7 * scale, 0.07);
     }
   }
@@ -2973,7 +2989,7 @@ export class Effects {
     const px = position.x;
     const py = position.y;
     const pz = position.z;
-    const n = this.quality === 'medium' ? 1 : 2;
+    const n = this._q.rich ? 2 : 1;
     for (let i = 0; i < n; i++) {
       const ang = rand(0, TAU);
       const size = rand(0.09, 0.17) * s;

@@ -3016,15 +3016,16 @@ input[type='range']::-moz-range-thumb {
 
 .set-quality {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 3px;
 }
 
 .set-quality button {
-  padding: 5px 0;
-  font-size: 8px;
+  padding: 6px 1px;
+  font-size: 7.5px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.09em;
+  white-space: nowrap;
   color: var(--sand-3);
   border: 1px solid rgba(238, 205, 158, 0.14);
   background: rgba(238, 205, 158, 0.03);
@@ -4027,9 +4028,9 @@ kbd {
    14.1 Touch layer variables
    ------------------------------------------------------------------------- */
 html.is-touch {
-  --tb-fire: clamp(76px, 22vmin, 96px);
+  --tb-fire: clamp(84px, 22vmin, 96px);
   --tb-size: clamp(52px, 15vmin, 68px);
-  --tb-gap: clamp(6px, 1.5vmin, 10px);
+  --tb-gap: clamp(8px, 1.8vmin, 12px);
   --tb-edge: clamp(10px, 1.8vmin, 18px);
   --tb-stick: clamp(96px, 28vmin, 156px);
   --tb-pause: clamp(44px, 7vmin, 52px);
@@ -4038,8 +4039,13 @@ html.is-touch {
   --tb-safe-r: env(safe-area-inset-right, 0px);
   --tb-safe-t: env(safe-area-inset-top, 0px);
   --tb-safe-b: env(safe-area-inset-bottom, 0px);
-  --tb-cluster-w: calc(3 * var(--tb-size) + 2 * var(--tb-gap));
+  /* CODM-style right-thumb arc: FIRE is raised off the bottom edge so its
+     vertical centre sits at 62.5% of the viewport height (>=84px, never
+     clipped by the OS gesture bar). The other four buttons orbit it in two
+     loose columns to the left/above. */
+  --tb-cluster-w: calc(var(--tb-fire) + 2 * var(--tb-gap) + 2 * var(--tb-size));
   --tb-cluster-h: calc(var(--tb-fire) + var(--tb-gap) + var(--tb-size));
+  --tb-fire-bottom: calc(var(--tb-safe-b) + 37.5vh - var(--tb-fire) / 2);
   /* phones get a smaller recon sweep so the pause button owns the corner */
   --radar: clamp(84px, 20vh, 148px);
 }
@@ -4188,10 +4194,12 @@ html.is-touch {
 }
 
 /* --- action cluster ------------------------------------------------------ */
+/* The container's bottom edge is FIRE's bottom edge (see --tb-fire-bottom);
+   buttons above FIRE grow upward, RELOAD below it overflows visibly. */
 .touch-buttons {
   position: absolute;
   right: calc(var(--tb-safe-r) + var(--tb-edge));
-  bottom: calc(var(--tb-safe-b) + var(--tb-edge));
+  bottom: var(--tb-fire-bottom);
   width: var(--tb-cluster-w);
   height: var(--tb-cluster-h);
   z-index: 4;
@@ -4300,10 +4308,27 @@ html.is-touch {
   color: var(--amber-2);
 }
 
-.touch-btn--jump { right: calc(var(--tb-fire) + var(--tb-gap)); bottom: 0; }
-.touch-btn--ads { right: 0; bottom: calc(var(--tb-fire) + var(--tb-gap)); }
-.touch-btn--reload { right: calc(var(--tb-size) + var(--tb-gap)); bottom: calc(var(--tb-fire) + var(--tb-gap)); }
-.touch-btn--crouch { right: calc(2 * (var(--tb-size) + var(--tb-gap))); bottom: calc(var(--tb-fire) + var(--tb-gap)); }
+/* CODM-style right-thumb arc around the raised FIRE anchor:
+   - right-edge column: CROUCH above FIRE, RELOAD tucked below FIRE
+   - one column left: ADS level with FIRE, JUMP below ADS
+   All gaps are >= 8px and every offset is derived from --tb-fire / --tb-size
+   so the arc scales from 640x320 phones to 1024x768 tablets. */
+.touch-btn--crouch {
+  right: calc((var(--tb-fire) - var(--tb-size)) / 2);
+  bottom: calc(var(--tb-fire) + var(--tb-gap));
+}
+.touch-btn--reload {
+  right: calc((var(--tb-fire) - var(--tb-size)) / 2);
+  bottom: calc(-1 * (var(--tb-gap) + var(--tb-size)));
+}
+.touch-btn--ads {
+  right: calc(var(--tb-fire) + var(--tb-gap));
+  bottom: calc((var(--tb-fire) - var(--tb-size)) / 2);
+}
+.touch-btn--jump {
+  right: calc(var(--tb-fire) + 2 * var(--tb-gap) + var(--tb-size));
+  bottom: calc((var(--tb-fire) - var(--tb-size)) / 2 - (var(--tb-size) + var(--tb-gap)));
+}
 
 /* pressed / toggled states */
 .touch-btn:active {
@@ -4507,7 +4532,10 @@ html.is-touch .hud-top-center {
 
 html.is-touch .hud-top-right {
   top: calc(var(--tb-safe-t) + var(--tb-hud));
-  right: calc(var(--tb-safe-r) + var(--tb-hud) + var(--tb-pause) + 6px);
+  /* +46px keeps the recon/perf/killfeed column clear of the raised CROUCH
+     button that now sits above FIRE on the right edge (measured gap >=10px
+     at 844x390 / 932x430 / 640x320 / 1024x768). */
+  right: calc(var(--tb-safe-r) + var(--tb-hud) + var(--tb-pause) + 6px + 46px);
   width: max(var(--radar), 176px);
   gap: 4px;
 }
@@ -4626,7 +4654,7 @@ html.is-touch input[type='range'] { height: 30px; }
 html.is-touch input[type='range']::-webkit-slider-runnable-track { height: 3px; }
 html.is-touch input[type='range']::-webkit-slider-thumb { width: 18px; height: 26px; margin-top: -11.5px; }
 html.is-touch .set-value { min-width: 40px; font-size: 12px; }
-html.is-touch .set-quality button { min-height: 42px; font-size: 9px; }
+html.is-touch .set-quality button { min-height: 42px; font-size: 8.5px; letter-spacing: 0.05em; }
 html.is-touch .set-quality--diff button { min-height: 44px; font-size: 9.5px; }
 html.is-touch .set-toggle { min-height: 40px; padding: 9px 12px; font-size: 9px; }
 html.is-touch .panel { padding: 12px 14px; }
@@ -4737,7 +4765,7 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
 
   html.is-touch .hud-top-right {
     top: calc(var(--tb-safe-t) + 6px);
-    right: calc(var(--tb-safe-r) + 6px + var(--tb-pause) + 4px);
+    right: calc(var(--tb-safe-r) + 6px + var(--tb-pause) + 4px + 46px);
     width: max(var(--radar), 150px);
   }
 
@@ -4917,9 +4945,9 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
   html.is-touch .perf-head { display: none; }
   html.is-touch .perf-fps { font-size: 16px; }
   html.is-touch .perf-ms { font-size: 6.5px; }
-  /* one row only: the right column must never reach the upper button row at
-     640x320 (measured clearance ~5px after this cap) */
-  html.is-touch .killfeed { max-height: 20px; }
+  /* one row only: the right column must never reach FIRE/ADS at 640x320
+     (measured clearance ~5px after this cap) */
+  html.is-touch .killfeed { max-height: 16px; }
   html.is-touch .feed-row { font-size: 6.5px; }
 
   /* deployment dialog: one compact panel, no footer, cards still >= 60px tall */

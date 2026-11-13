@@ -24,6 +24,8 @@ if (touchMode) document.documentElement.classList.add('is-touch');
 // ---------------------------------------------------------------------------
 // Settings (UI stores the same key; main mirrors it so a fresh boot is coherent)
 // ---------------------------------------------------------------------------
+/** Render-quality tiers, cheapest first. Keep in sync with src/ui.js QUALITIES. */
+const QUALITY_IDS = ['lowest', 'low', 'medium', 'high', 'ultra'];
 const DEFAULT_SETTINGS = { sensitivity: 1.0, volume: 0.8, quality: 'high', muted: false, difficulty: 'standard' };
 function loadSettings() {
   let stored = false;
@@ -41,9 +43,9 @@ const settings = loadSettings();
 // main mobile frame-time risk. An explicit ?quality= or a previously saved
 // choice by the player still wins (only first-touch-device visits are forced).
 if (touchMode && !params.has('quality') && !settings.__stored) settings.quality = 'medium';
-if (params.get('quality') === 'medium' || params.get('quality') === 'ultra') settings.quality = params.get('quality');
+if (QUALITY_IDS.includes(params.get('quality'))) settings.quality = params.get('quality');
 if (params.get('difficulty') === 'hardcore' || params.get('difficulty') === 'standard') settings.difficulty = params.get('difficulty');
-let currentQuality = ['medium', 'high', 'ultra'].includes(settings.quality) ? settings.quality : 'high';
+let currentQuality = QUALITY_IDS.includes(settings.quality) ? settings.quality : 'high';
 /** 'standard' keeps loot upgrades after death, 'hardcore' wipes them. */
 let currentDifficulty = settings.difficulty === 'hardcore' ? 'hardcore' : 'standard';
 
@@ -93,23 +95,27 @@ try {
   showFatal('无法初始化 WebGL2。请使用最新版 Chrome/Edge 并开启硬件加速。', error);
   throw error;
 }
-const qualityPixelRatio = (q) => Math.min(window.devicePixelRatio || 1, q === 'ultra' ? 2.0 : q === 'high' ? 1.65 : 1.0);
+// Per-tier internal render scale. Tier LOWEST/LOW render below native on DPR-1
+// displays (the canvas is CSS-upscaled), HIGH/ULTRA supersample on HiDPI.
+const PIXEL_CAP_DESKTOP = { lowest: 0.55, low: 0.75, medium: 1.0, high: 1.65, ultra: 2.0 };
 // Mobile render-scale caps: a phone at DPR 3 must not try to shade 2-3x screens.
-const PIXEL_CAP_TOUCH = { medium: 1.0, high: 1.25, ultra: 1.5 };
-const PIXEL_CAP_DESKTOP = { medium: 1.0, high: 1.65, ultra: 2.0 };
+const PIXEL_CAP_TOUCH = { lowest: 0.6, low: 0.8, medium: 1.0, high: 1.25, ultra: 1.5 };
 /** Adaptive render scale (touch only): 1 = full quality cap, floor keeps the image readable. */
 let adaptiveScale = 1;
 const ADAPTIVE_MIN = 0.72;
+/** Absolute pixel-ratio floor so the cheapest tier still renders (and stays readable). */
+const PIXEL_RATIO_FLOOR = 0.5;
 function basePixelRatio(q) {
   const caps = touchMode ? PIXEL_CAP_TOUCH : PIXEL_CAP_DESKTOP;
   return Math.min(window.devicePixelRatio || 1, caps[q] ?? 1.0);
 }
 function effectivePixelRatio(q) {
-  return Math.max(0.65, basePixelRatio(q) * adaptiveScale);
+  return Math.max(PIXEL_RATIO_FLOOR, basePixelRatio(q) * adaptiveScale);
 }
-renderer.setPixelRatio(touchMode ? effectivePixelRatio(currentQuality) : qualityPixelRatio(currentQuality));
+renderer.setPixelRatio(touchMode ? effectivePixelRatio(currentQuality) : basePixelRatio(currentQuality));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
-renderer.shadowMap.enabled = true;
+// LOWEST skips the entire shadow pass; every other tier keeps the soft shadows.
+renderer.shadowMap.enabled = currentQuality !== 'lowest';
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.06;
@@ -530,20 +536,24 @@ function buildStats() {
 }
 
 function applyQuality(quality) {
-  if (!['medium', 'high', 'ultra'].includes(quality)) return;
+  if (!QUALITY_IDS.includes(quality)) return;
   currentQuality = quality;
   game.quality = quality;
   settings.quality = quality;
   // A manual quality change restarts adaptive scaling from the new cap.
   adaptiveScale = 1;
-  if (postfx) {
-    postfx.setQuality(quality);
-    applyViewportSize();
-  } else {
-    applyViewportSize();
+  // LOWEST skips the whole shadow pass — the biggest single win on weak GPUs.
+  // Switching back up re-enables it and lets the world rebuild its shadow map.
+  const shadows = quality !== 'lowest';
+  if (renderer.shadowMap.enabled !== shadows) {
+    renderer.shadowMap.enabled = shadows;
+    if (shadows) renderer.shadowMap.needsUpdate = true;
   }
+  postfx?.setQuality?.(quality);
+  applyViewportSize();
   effects?.setQuality?.(quality);
   world?.setQuality?.(quality);
+  enemies?.setQuality?.(quality);
 }
 
 // ---------------------------------------------------------------------------
@@ -890,6 +900,11 @@ async function boot() {
         setAdaptiveScale(THREE.MathUtils.clamp(Number(value) || 1, ADAPTIVE_MIN, 1));
         return adaptiveScale;
       },
+      get quality() { return currentQuality; },
+      setQuality(value) {
+        applyQuality(value);
+        return currentQuality;
+      },
       killAll() {
         if (!enemies) return 0;
         const roots = new Set();
@@ -1026,4 +1041,5 @@ window.__sandstrikeApp = {
   get touchMode() { return touchMode; },
   get touchControls() { return touch; },
   get adaptiveScale() { return adaptiveScale; },
+  get quality() { return currentQuality; },
 };

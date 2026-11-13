@@ -773,9 +773,11 @@ class StaticBatcher {
 // ===========================================================================
 
 const QUALITY_SETTINGS = {
-  medium: { shadowMap: 2048, dust: 420, motes: 500, anisotropy: 4 },
-  high: { shadowMap: 4096, dust: 700, motes: 800, anisotropy: 8 },
-  ultra: { shadowMap: 4096, dust: 950, motes: 1100, anisotropy: 16 },
+  lowest: { shadowMap: 512, dust: 140, motes: 160, anisotropy: 2, lights: 3 },
+  low: { shadowMap: 1024, dust: 280, motes: 320, anisotropy: 4, lights: 5 },
+  medium: { shadowMap: 2048, dust: 420, motes: 500, anisotropy: 4, lights: 6 },
+  high: { shadowMap: 4096, dust: 700, motes: 800, anisotropy: 8, lights: 8 },
+  ultra: { shadowMap: 4096, dust: 950, motes: 1100, anisotropy: 16, lights: 8 },
 };
 
 /** Build a MeshStandardMaterial from one of the procedural texture sets. */
@@ -3389,7 +3391,8 @@ function buildLanterns(ctx) {
 
 function buildPracticalLights(ctx) {
   let count = 0;
-  const maxLights = ctx.quality === 'medium' ? 6 : 8;
+  const q = QUALITY_SETTINGS[ctx.quality] ?? QUALITY_SETTINGS.high;
+  const maxLights = q.lights ?? 8;
   for (const req of ctx.req.lights) {
     if (count >= maxLights) break;
     if (req.kind === 'accent') continue;
@@ -3809,7 +3812,8 @@ export async function createWorld(scene, renderer, { quality = 'high', onProgres
         ctx.sun.shadow.mapSize.set(settings.shadowMap, settings.shadowMap);
         ctx.sun.shadow.needsUpdate = true;
       }
-      ctx.scene.environmentIntensity = nextQuality === 'medium' ? 0.45 : 0.55;
+      const envIntensity = { lowest: 0.35, low: 0.4, medium: 0.45, high: 0.55, ultra: 0.55 };
+      ctx.scene.environmentIntensity = envIntensity[nextQuality] ?? 0.55;
     },
     /** Debug info (dev tools). */
     debug: {

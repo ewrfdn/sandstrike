@@ -104,11 +104,21 @@ node scripts/verify-standalone.mjs    # 用 headless Chrome 以 file:// 打开�
 
 ## 画质
 
-设置中可切换 `MEDIUM / HIGH / ULTRA`，影响内部渲染分辨率、MSAA、阴影贴图、泛光强度与粒子预算。默认在 1080p 及以上使用 HIGH；短屏 1280×720 下菜单与 HUD 也有专门的紧凑布局。
+设置中可切换 5 档画质（`LOWEST / LOW / MED / HIGH / ULTRA`），从内部分辨率、阴影、泛光、MSAA 到粒子/贴花预算逐级缩放；新增的 `LOWEST / LOW` 面向核显与老机器，`LOWEST` 关闭整条阴影与泛光渲染并以约 0.55× 内部分辨率渲染，帧率提升最明显。默认 1080p 及以上使用 `HIGH`，触屏设备默认 `MEDIUM`；短屏 1280×720 下菜单与 HUD 也有专门的紧凑布局。
+
+| 档位 | 内部渲染比例（桌面） | 阴影贴图 | 泛光 | MSAA | 粒子/贴花预算 |
+| --- | --- | --- | --- | --- | --- |
+| **LOWEST 最低** | 0.55× | 关闭 | 关闭 | 关 | ~28% |
+| **LOW 低** | 0.75× | 1024 | 0.18 | 2× | ~45% |
+| **MEDIUM 中** | 1.0× | 2048 | 0.28 | 2× | ~62% |
+| **HIGH 高** | 1.65×（受 DPR 上限） | 4096 | 0.40 | 4× | 100% |
+| **ULTRA 极高** | 2.0×（受 DPR 上限） | 4096 | 0.50 | 4× | ~134% |
+
+> 档位可随时在菜单 / 暂停 → SYSTEM CONFIG → RENDER QUALITY 切换并自动保存（旧存档的 MEDIUM/HIGH/ULTRA 选择不受影响）；`LOWEST` 额外关闭动态阴影与 bloom，适合核显/低端设备。移动端渲染像素比上限为 LOWEST 0.6 / LOW 0.8 / MEDIUM 1.0 / HIGH 1.25 / ULTRA 1.5。
 
 ### 帧数显示
 
-HUD 右上方（侦察雷达下方）常驻 **FRAME / 帧率** 面板：整数 FPS、平均帧时间（ms）、`GOOD / FAIR / LOW` 状态灯，以及最近 72 帧的帧时间柱状图（含 16.7ms 60FPS 参考线），打开画质设置或排查掉帧时一眼可见；主菜单顶栏也有一行更精简的同源读数，方便直接对比 `MEDIUM / HIGH / ULTRA` 的帧率差异。
+HUD 右上方（侦察雷达下方）常驻 **FRAME / 帧率** 面板：整数 FPS、平均帧时间（ms）、`GOOD / FAIR / LOW` 状态灯，以及最近 72 帧的帧时间柱状图（含 16.7ms 60FPS 参考线），打开画质设置或排查掉帧时一眼可见；主菜单顶栏也有一行更精简的同源读数，方便直接对比 `LOWEST / LOW / MED / HIGH / ULTRA` 各档画质的帧率差异。
 
 面板默认开启。按 `F3` 可在任何界面一键开关，也可以到菜单 / 暂停的 **SYSTEM CONFIG → FRAME COUNTER（帧率显示）** 切换；开关状态和其它设置一起保存在本地，刷新后保持。测量直接复用 UI 动画帧时钟（原始帧间隔、约 500ms 滚动窗口），显示刷新被限制在 8Hz 文本 / 14Hz 画布，对帧率基本零开销；切后台或长卡顿后会自动重置统计窗口，不会出现异常读数。
 
@@ -139,6 +149,7 @@ HUD 右上方（侦察雷达下方）常驻 **FRAME / 帧率** 面板：整数 F
 node scripts/check.mjs             # 语法检查
 node scripts/qa.mjs                # 无头 Playwright QA（需先启动服务）
 node scripts/fps-probe.mjs         # 帧数显示黑盒验证（准确性/开关/持久化/布局）
+node scripts/quality-probe.mjs     # 5 档画质黑盒验证（参数生效/持久化/布局/回归）
 node scripts/fullscreen-probe.mjs  # 全屏开关黑盒验证（进入/退出/状态同步/布局）
 node scripts/mobile-qa.mjs         # 移动端触屏 / 响应式 QA（需先启动服务）
 node scripts/gpu-band-check.mjs    # 真实 GPU 上的黑块回归（需硬件加速）
@@ -153,6 +164,8 @@ QA 会自动完成：真实点击 `START OPERATION` → 锁定鼠标 → 波次 
 
 `fullscreen-probe.mjs` 用真实用户手势验证全屏开关：菜单与暂停两份 SYSTEM CONFIG 面板都有 FULLSCREEN 行、初始 `OFF`；点击后 `document.fullscreenElement` 就位且两面板 `ON` / `aria-pressed` / 高亮态同步，再次点击退出；外部（脚本或浏览器）退出全屏时开关自动跟随 `fullscreenchange` 复位；刷新后恢复窗口模式；1600×900 与 1280×720 设置面板不溢出、不遮挡 START/RESUME；移动端 844×390 触摸模拟可真实进入全屏；全程 0 console error 且不破坏游戏循环。结果写入 `shots/fullscreen-probe.json` 与 `shots/fullscreen-*.png`。
 
+`quality-probe.mjs` 用真实点击验证 5 档画质：菜单 / 暂停各 5 个按钮（LOWEST→ULTRA）、默认 HIGH、双面板 active 与 `localStorage` 同步；逐档断言 `game/postfx/effects/enemies.quality`、`renderer.getPixelRatio()`（DPR1 下 0.55/0.75/1.0/1.0/1.0，DPR2 下 0.55/0.75/1.0/1.65/2.0）、阴影贴图 512/1024/2048/4096/4096 与 LOWEST 关阴影、泛光 null/0.18/0.28/0.40/0.50、MSAA 0/2/2/4/4；并覆盖 reload 持久化、`?quality=` 启动、游戏内实时切换、触屏 844×390、1600×900/1280×720 布局与 FPS/全屏回归。结果写入 `shots/quality-probe.json` 与 `shots/quality-*.png`。
+
 `gpu-band-check.mjs` 用真实 GPU（ANGLE/D3D11）在 2476×1208 下连续射击 60 帧并逐列采样 framebuffer，断言不出现"整屏黑条"。这个问题只在硬件渲染下出现：曳光弹 shader 对可能略小于 0 的插值变量做 `pow()` 会产生 NaN，单个 NaN 像素被 bloom 的 mip 链扩散成大块黑区（SwiftShader 上不会复现）。修复方式是所有 `pow()` 前先 `clamp` 基值、整数次幂改为乘法，并在调色 pass 增加 NaN/Inf 兜底。
 
 `verify-standalone.mjs` 则用 `file://` 打开单文件版，断言：无 module/CORS 报错、无任何网络请求、START 可点击进入游戏、渲染循环运行、15 波可通关，并把截图输出为 `shots/standalone-*.png`、结果写入 `shots/standalone-qa.json`。
@@ -163,7 +176,7 @@ QA 会自动完成：真实点击 `START OPERATION` → 锁定鼠标 → 波次 
 
 - **触屏输入** `src/touch.js`：Pointer Events 多指手势（摇杆 + 转向 + 开火可同时进行）、自动冲刺、指针捕获、失焦/切后台自动松开所有按键；`?touch=1` 可在桌面模拟。
 - **不锁鼠标**：触屏模式跳过了 Pointer Lock；桌面仍保留原有鼠标锁定逻辑。
-- **性能策略**：触屏默认 MEDIUM 画质，渲染像素比按设备 DPR 收紧（MEDIUM 1.0 / HIGH 1.25 / ULTRA 1.5），并在运行中根据帧率动态调整内部渲染分辨率（0.72×～1.0×），画质设置里可手动覆盖。
+- **性能策略**：触屏默认 MEDIUM 画质，渲染像素比按设备 DPR 收紧（LOWEST 0.6 / LOW 0.8 / MEDIUM 1.0 / HIGH 1.25 / ULTRA 1.5），并在运行中根据帧率动态调整内部渲染分辨率（0.72×～1.0×），画质设置里可手动覆盖。
 - **响应式 UI**：`styles.css` 增加触屏层、安全区（刘海/home indicator）内边距、手机横/竖屏与平板媒体查询；HUD 采用紧凑布局，暂停键避开雷达，竖屏战斗显示旋转提示。
 
 ## 开发
@@ -175,7 +188,7 @@ QA 会自动完成：真实点击 `START OPERATION` → 锁定鼠标 → 波次 
 - 真实 GPU 黑块回归：`node scripts/gpu-band-check.mjs`（需先启动服务）
 - 帧数显示验证：`node scripts/fps-probe.mjs`（需先启动服务，硬件 GPU）
 - 单文件验证：`node scripts/verify-standalone.mjs`
-- 调试参数：`?dev=1` 暴露 `window.__sandstrike`；`?quality=ultra` 强制画质
+- 调试参数：`?dev=1` 暴露 `window.__sandstrike`；`?quality=lowest|low|medium|high|ultra` 强制画质
 - 帧数统计（`?dev=1`）：`__devUI.perf` 读取 `{fps, frameMs, worstMs, samples, level}`，`__devUI.setShowFps(bool)` 切换面板；游戏内 `F3` 等同 SYSTEM CONFIG 开关
 - 开发调试：`__sandstrike.fastForward(sec)`、`killAll()`、`jumpToWave(n)`、`freeze(true)`、`renderOnce()`
 - 运行时依赖仅 `three`（已本地 vendored）以及 Node 静态服务器，**跑游戏不需要 npm install**；只有重新构建单文件版才需要 devDependencies 中的 `esbuild`（`npm install` 后可用）

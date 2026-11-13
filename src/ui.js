@@ -14,7 +14,7 @@ import { emit, on } from './bus.js';
 
 const SETTINGS_KEY = 'sandstrike.settings.v1';
 const BEST_KEY = 'sandstrike.best.v1';
-const QUALITIES = ['medium', 'high', 'ultra'];
+const QUALITIES = ['lowest', 'low', 'medium', 'high', 'ultra'];
 const VALID_STATES = new Set(['menu', 'playing', 'paused', 'dead', 'victory']);
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
@@ -157,9 +157,11 @@ function settingsMarkup(scope) {
     <div class="set-row">
       <span class="set-label">RENDER QUALITY <em>画质</em></span>
       <div class="set-quality" data-quality role="group" aria-label="Render quality">
-        <button type="button" data-quality-value="medium">MED</button>
-        <button type="button" data-quality-value="high">HIGH</button>
-        <button type="button" data-quality-value="ultra">ULTRA</button>
+        <button type="button" data-quality-value="lowest" title="最低画质：0.55× 渲染比例，关闭阴影与泛光 // Lowest">LOWEST</button>
+        <button type="button" data-quality-value="low" title="低画质：0.75× 渲染比例 // Low">LOW</button>
+        <button type="button" data-quality-value="medium" title="中等画质：1.0× 渲染比例 // Medium">MED</button>
+        <button type="button" data-quality-value="high" title="高画质：1.65× 渲染比例，软阴影与泛光 // High">HIGH</button>
+        <button type="button" data-quality-value="ultra" title="极高画质：2.0× 渲染比例，最高特效 // Ultra">ULTRA</button>
       </div>
     </div>
     <div class="set-row set-row--toggle">
@@ -509,6 +511,7 @@ export class UI {
       button.classList.toggle('is-on', active);
       button.setAttribute('aria-pressed', String(active));
     }
+    if (this.root) this.root.style.setProperty('--quality', settings.quality);
     for (const button of this.refs.difficultyButtons || []) {
       const active = button.dataset.difficultyValue === settings.difficulty;
       button.classList.toggle('is-on', active);

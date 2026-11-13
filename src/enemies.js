@@ -2397,6 +2397,26 @@ class EnemyManager {
     for (let i = 0; i < this._lights.length; i++) this._lights[i].light.intensity = 0;
   }
 
+  /** Only the HIGH/ULTRA tiers let robots feed the sun shadow map. */
+  _castsShadow() {
+    return this.quality === 'high' || this.quality === 'ultra';
+  }
+
+  /** Live quality switch from main.js: update active + pooled rig shadow flags. */
+  setQuality(quality) {
+    if (typeof quality !== 'string' || !quality) return;
+    this.quality = quality;
+    const cast = this._castsShadow();
+    const apply = (root) => {
+      if (!root) return;
+      root.traverse((o) => { if (o.isMesh) o.castShadow = cast; });
+    };
+    for (let i = 0; i < this.robots.length; i++) apply(this.robots[i] && this.robots[i].root);
+    for (const pool of this._rigPools.values()) {
+      for (let i = 0; i < pool.length; i++) apply(pool[i] && pool[i].root);
+    }
+  }
+
   update(dt, elapsed) {
     if (this._disposed || !this._running) return;
     if (!(dt > 0)) return;
@@ -3172,7 +3192,7 @@ class EnemyManager {
     const def = ROBOT_TYPES[type];
     const rigMats = createRigMaterialSet(this._baseMats);
     const rig = buildRobotRig(def, rigMats, this._geo, this._hitGeo, this._hitMat);
-    if (this.quality === 'medium') {
+    if (!this._castsShadow()) {
       rig.root.traverse((o) => { if (o.isMesh) o.castShadow = false; });
     }
     rig.root.visible = false;

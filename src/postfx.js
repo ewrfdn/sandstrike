@@ -7,6 +7,20 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { clamp, damp } from './utils.js';
 
 /**
+ * Per-tier post-processing budget. `samples` is the MSAA sample count of the
+ * HDR target, `bloom` the UnrealBloom strength (0 = no bloom pass at all) and
+ * `grain` the film-grain amount.
+ */
+const QUALITY_PRESETS = {
+  lowest: { samples: 0, bloom: 0, grain: 0.02 },
+  low: { samples: 2, bloom: 0.18, grain: 0.024 },
+  medium: { samples: 2, bloom: 0.28, grain: 0.028 },
+  high: { samples: 4, bloom: 0.4, grain: 0.035 },
+  ultra: { samples: 4, bloom: 0.5, grain: 0.035 },
+};
+const normalizeQuality = (value) => (QUALITY_PRESETS[value] ? value : 'high');
+
+/**
  * Cinematic post stack: HDR MSAA render -> bloom -> filmic grade/lens -> output.
  * The grade pass runs in linear HDR space (before OutputPass tone maps + encodes).
  */
@@ -131,7 +145,7 @@ export class PostFX {
     this.renderer = renderer;
     this.scene = scene;
     this.camera = camera;
-    this.quality = quality;
+    this.quality = normalizeQuality(quality);
     this.damage = 0;
     this.lowHealth = 0;
     this._damageTarget = 0;
@@ -147,7 +161,8 @@ export class PostFX {
     }
     const size = this.renderer.getSize(new THREE.Vector2());
     const pixelRatio = this.renderer.getPixelRatio();
-    const samples = this.quality === 'ultra' ? 4 : this.quality === 'high' ? 4 : 2;
+    const preset = QUALITY_PRESETS[this.quality] || QUALITY_PRESETS.high;
+    const samples = preset.samples;
     const target = new THREE.WebGLRenderTarget(
       Math.max(2, Math.floor(size.x)),
       Math.max(2, Math.floor(size.y)),
@@ -162,14 +177,18 @@ export class PostFX {
     const renderPass = new RenderPass(this.scene, this.camera);
     composer.addPass(renderPass);
 
-    const bloomStrength = this.quality === 'medium' ? 0.28 : this.quality === 'ultra' ? 0.5 : 0.4;
-    this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(size.x, size.y),
-      bloomStrength,
-      0.58,
-      0.95
-    );
-    composer.addPass(this.bloom);
+    if (preset.bloom > 0) {
+      this.bloom = new UnrealBloomPass(
+        new THREE.Vector2(size.x, size.y),
+        preset.bloom,
+        0.58,
+        0.95
+      );
+      composer.addPass(this.bloom);
+    } else {
+      // LOWEST: skip the bloom mip chain entirely (largest single post-FX cost).
+      this.bloom = null;
+    }
 
     this.grade = new ShaderPass(SandGradeShader);
     this.grade.uniforms.uResolution.value.set(
@@ -187,11 +206,11 @@ export class PostFX {
   }
 
   setQuality(quality) {
-    if (quality === this.quality) return;
-    this.quality = quality;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === 'ultra' ? 2.0 : quality === 'high' ? 1.65 : 1.0));
-    const size = this.renderer.getSize(new THREE.Vector2());
-    this.renderer.setSize(size.x, size.y, false);
+    const next = normalizeQuality(quality);
+    if (next === this.quality) return;
+    this.quality = next;
+    // Viewport size / pixel ratio is owned by main.js; rebuilding the composer
+    // picks up the current renderer size and the new per-tier budget.
     this._build();
   }
 
@@ -229,7 +248,7 @@ export class PostFX {
       u.uDamage.value = this.damage;
       u.uLowHealth.value = this.lowHealth;
       u.uVignette.value = 1.0;
-      u.uGrain.value = this.quality === 'medium' ? 0.028 : 0.035;
+      u.uGrain.value = (QUALITY_PRESETS[this.quality] || QUALITY_PRESETS.high).grain;
     }
   }
 
