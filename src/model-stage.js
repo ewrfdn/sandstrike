@@ -407,7 +407,7 @@ const CATALOG = [
   { id: 'robot-boss', kind: 'robot', group: 'robots', label: 'SIEGE WARDEN · 攻城督军', type: 'boss', defaultPose: 'base' },
 
   // ---- first-person weapon --------------------------------------------------------
-  { id: 'rpg-launcher', kind: 'world', group: 'weapon', label: 'RPG-7 · 火箭筒（展示架）', build: (ctx) => buildRpgLauncher(ctx) },
+  { id: 'rpg-launcher', kind: 'world', group: 'weapon', label: 'RPG-7 · 火箭筒（手持）', lift: true, build: (ctx) => buildRpgLauncher(ctx) },
   { id: 'weapon-vxr7', kind: 'weapon', group: 'weapon', label: 'VXR-7 · 视模 VIEWMODEL', lift: true },
 ];
 

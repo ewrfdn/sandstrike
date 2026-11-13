@@ -1605,10 +1605,12 @@ function buildBoundary(ctx) {
     const baseD = horizontal ? b.d + 0.34 : b.w;
     if (horizontal) {
       boxBatch(ctx, 'stone', b.x, 0.6, b.z, b.w + 0.06, 1.2, b.d + 0.3, { tile: 2.1 });
-      boxBatch(ctx, 'stone', b.x, b.h - 0.16, b.z, b.w + 0.06, 0.32, b.d + 0.32, { tile: 2.1 });
+      // stone coping: sits 0.02 m above the adobe body top (was flush at b.h, which
+      // left two coplanar up-facing surfaces z-fighting across the whole wall top)
+      boxBatch(ctx, 'stone', b.x, b.h - 0.14, b.z, b.w + 0.06, 0.32, b.d + 0.32, { tile: 2.1 });
     } else {
       boxBatch(ctx, 'stone', b.x, 0.6, b.z, b.w + 0.3, 1.2, b.d + 0.06, { tile: 2.1 });
-      boxBatch(ctx, 'stone', b.x, b.h - 0.16, b.z, b.w + 0.32, 0.32, b.d + 0.06, { tile: 2.1 });
+      boxBatch(ctx, 'stone', b.x, b.h - 0.14, b.z, b.w + 0.32, 0.32, b.d + 0.06, { tile: 2.1 });
     }
     void baseW;
     void baseD;
@@ -1716,7 +1718,8 @@ function buildMidWall(ctx) {
   for (const w of L.walls) {
     boxBatch(ctx, 'adobe', w.x, w.h / 2, w.z, w.w, w.h, w.d, { tile: 2.5 });
     boxBatch(ctx, 'stone', w.x, 0.5, w.z, w.w, 1.0, w.d + 0.26, { tile: 2.0 });
-    boxBatch(ctx, 'stone', w.x, w.h - 0.16, w.z, w.w, 0.32, w.d + 0.3, { tile: 2.0 });
+    // stone coping raised 0.02 m above the adobe body top to avoid coplanar z-fight
+    boxBatch(ctx, 'stone', w.x, w.h - 0.14, w.z, w.w, 0.32, w.d + 0.3, { tile: 2.0 });
     // parapet crenellation along the courtyard-facing side
     addCrenellationsAlongX(ctx, w.x - w.w / 2 + 0.4, w.x + w.w / 2 - 0.4, w.z - 0.25, w.h + 0.38, 2.3);
     // pilasters on both faces
@@ -1917,7 +1920,9 @@ function buildWarehouseBlocks(ctx) {
       for (const s of [-1, 1]) {
         boxBatch(ctx, 'metal', lfX + laneFace * 0.1, 1.5, b.z + s * (doubleW / 4), 0.12, 2.9, doubleW / 2 - 0.08, { tile: 1.5 });
       }
-      boxBatch(ctx, 'dark', lfX + laneFace * 0.06, 1.6, b.z, 0.08, 3.0, doubleW - 0.2, { tile: 1 });
+      // dark recess backing: keep it 0.02 m behind the rust plate's outer face
+      // (0.06 put both faces on x = lfX +/- 0.1 and they z-fought in the door gap)
+      boxBatch(ctx, 'dark', lfX + laneFace * 0.04, 1.6, b.z, 0.08, 3.0, doubleW - 0.2, { tile: 1 });
       makeSign(ctx, {
         text: b.lane, sub: b.lane === 'A LONG' ? '长 道 / A' : '隧 道 / B',
         x: lfX + laneFace * 0.2, y: 4.05, z: b.z, ry: laneFace > 0 ? Math.PI / 2 : -Math.PI / 2,
@@ -1932,9 +1937,13 @@ function buildWarehouseBlocks(ctx) {
     if (b.door) {
       const d = b.door;
       boxBatch(ctx, 'stone', b.x, d.h + 0.28, d.z, b.w + 0.3, 0.5, d.w + 0.5, { tile: 1.9 });
-      // side posts
+      // Side posts. The 0.24 m slab is centred so its passage-facing face stands
+      // 0.03 m PROUD of the adobe block face. At 0.12 the slab face was exactly
+      // coplanar with the block face (z = d.z +/- d.w/2), so the two opaque surfaces
+      // z-fought over ~12 m2 of each passage wall and strobed between the stone and
+      // adobe textures whenever the camera moved.
       for (const s of [-1, 1]) {
-        boxBatch(ctx, 'stone', b.x, d.h / 2, d.z + s * (d.w / 2 + 0.12), b.w + 0.2, d.h, 0.24, { tile: 1.8 });
+        boxBatch(ctx, 'stone', b.x, d.h / 2, d.z + s * (d.w / 2 + 0.09), b.w + 0.2, d.h, 0.24, { tile: 1.8 });
       }
       makeSign(ctx, {
         text: b.lane, sub: b.lane === 'A LONG' ? 'A 长 道' : 'B 隧 道',
@@ -2041,9 +2050,11 @@ function buildColonnade(ctx) {
 
 function buildTunnel(ctx) {
   const L = ctx.data.layout;
-  // covered passage roof
+  // covered passage roof. Panel depth matches the 2.26 m bay spacing: with the old
+  // 2.36 m depth neighbouring panels overlapped 0.10 m, so their coplanar underside
+  // faces z-fought in 11.4 m long strips across the ceiling.
   for (let z = -10.2; z >= -19.2; z -= 2.26) {
-    boxBatch(ctx, 'sheet', -27.0, 3.5, z, 11.4, 0.1, 2.36, { tile: 1.6 });
+    boxBatch(ctx, 'sheet', -27.0, 3.5, z, 11.4, 0.1, 2.26, { tile: 1.6 });
   }
   for (const z of [-10.6, -13.4, -16.2, -19.0]) {
     boxBatch(ctx, 'wood', -27.0, 3.3, z, 11.5, 0.26, 0.24, { tile: 1.4 });
@@ -3921,8 +3932,10 @@ export async function createWorld(scene, renderer, { quality = 'high', onProgres
 // ===========================================================================
 
 /**
- * RPG-7 style rocket launcher, staged on a workshop display cradle with a spare
- * rocket on the lower shelf.  Design study only: nothing places this in the map.
+ * RPG-7 style rocket launcher carried in first person: launch tube, wooden heat
+ * shield, iron sights, grips, canvas sling, shoulder rest and a loaded PG-7
+ * warhead, plus the gloved hands / sleeve stubs that hold it (no display stand).
+ * Design study only: nothing places this in the map.
  */
 function buildRpgLauncher(ctx) {
   const UNIT = new THREE.Vector3(1, 1, 1);
@@ -3955,31 +3968,20 @@ function buildRpgLauncher(ctx) {
     g.dispose();
   };
 
-  // ------------------------------------------------------------ display cradle
-  for (const x of [-0.55, 0.55]) {
-    box('metalDark', 0.1, 0.08, 1.95, x, 0.04, 0, 0, 0, 0, 1.5);          // runner
-    box('rust', 0.22, 0.03, 0.24, x, 0.015, -0.8, 0, 0, 0, 1.2);          // foot pads
-    box('rust', 0.22, 0.03, 0.24, x, 0.015, 0.8, 0, 0, 0, 1.2);
-  }
-  for (const z of [-0.55, 0.55]) {
-    for (const side of [-1, 1]) {
-      rod('metalDark', side * 0.46, 0.08, z, side * 0.26, 1.16, z, 0.045);  // upright
-    }
-    box('metalDark', 0.62, 0.08, 0.1, 0, 1.16, z, 0, 0, 0, 1.4);           // cradle crossbar
-    for (const side of [-1, 1]) {
-      box('wood', 0.12, 0.1, 0.09, side * 0.2, 1.24, z, 0, 0, side * 0.5); // V block
-    }
-  }
-  rod('metalDark', -0.42, 0.35, -0.55, -0.42, 0.35, 0.55, 0.03);           // lower rails
-  rod('metalDark', 0.42, 0.35, -0.55, 0.42, 0.35, 0.55, 0.03);
-  rod('metalDark', -0.44, 0.12, -0.55, 0.44, 0.95, 0.55, 0.022);           // diagonal brace
+  // ------------------------------------------------------------ held weapon
+  // (no display cradle: this is a first-person carried launcher; the gloved
+  // hands and sleeve stubs below sit where the player's arms would be)
 
   // ------------------------------------------------------------- the launcher
   const LY = 1.33;
   cyl('metalDark', 0.05, 0.05, 1.35, 0, LY, 0, Math.PI / 2, 0, 0, 12);     // launch tube
-  cyl('metalDark', 0.108, 0.05, 0.24, 0, LY, 0.77, Math.PI / 2, 0, 0, 12); // rear venturi
-  cyl('rust', 0.112, 0.112, 0.03, 0, LY, 0.88, Math.PI / 2, 0, 0, 12);     // venturi rim
-  cyl('dark', 0.07, 0.07, 0.03, 0, LY, 0.7, Math.PI / 2, 0, 0, 12);        // tube rear cap
+  // rear end: short venturi bell (opening backwards) with a dark throat, a rim
+  // and a collar - not a long taper, so it reads as a nozzle instead of a cone
+  cyl('metalDark', 0.056, 0.056, 0.12, 0, LY, 0.7, Math.PI / 2, 0, 0, 12);   // collar
+  cyl('metalDark', 0.118, 0.056, 0.2, 0, LY, 0.86, Math.PI / 2, 0, 0, 12);   // venturi bell
+  cyl('rust', 0.122, 0.122, 0.022, 0, LY, 0.965, Math.PI / 2, 0, 0, 12);     // bell rim
+  cyl('dark', 0.104, 0.104, 0.03, 0, LY, 0.958, Math.PI / 2, 0, 0, 12);      // throat interior
+  box('metalDark', 0.05, 0.08, 0.2, 0, LY - 0.1, 0.82, 0.2, 0, 0);           // bell support strut
   // wooden heat shield + metal bands
   cyl('wood', 0.079, 0.079, 0.5, 0, LY, 0.12, Math.PI / 2, 0, 0, 14, 0.9);
   for (const z of [-0.12, 0.34]) cyl('metalDark', 0.086, 0.086, 0.035, 0, LY, z, Math.PI / 2, 0, 0, 14);
@@ -3990,6 +3992,9 @@ function buildRpgLauncher(ctx) {
   box('metalDark', 0.02, 0.02, 0.16, 0, LY - 0.12, 0.14, 0.2);
   rod('metalDark', 0, LY - 0.2, 0.31, 0, LY - 0.24, 0.12, 0.011);
   rod('metalDark', 0, LY - 0.24, 0.12, 0, LY - 0.14, 0.07, 0.011);
+  // shoulder rest (the launcher is shouldered when fired)
+  box('wood', 0.05, 0.06, 0.2, 0, LY - 0.07, 0.52, -0.2);
+  box('rubber', 0.09, 0.15, 0.2, 0, LY - 0.15, 0.62, -0.28);
   // iron sights: front post + ring, rear aperture + elevation drum
   box('dark', 0.03, 0.13, 0.05, 0, LY + 0.1, -0.44);
   place('metalDark', new THREE.TorusGeometry(0.045, 0.01, 5, 10), 0, LY + 0.13, -0.44);
@@ -4005,21 +4010,30 @@ function buildRpgLauncher(ctx) {
   ]) rod('canvasDark', ...seg, 0.012);
   // stencilled bands on the tube
   for (const z of [-0.36, 0.52]) box('rust', 0.104, 0.012, 0.03, 0, LY + 0.002, z);
-  // loaded PG-7 warhead: body, nose cone, bands
+  // loaded PG-7 warhead: body, nose cone (apex FORWARD) and bands
   cyl('canvasDark', 0.105, 0.105, 0.44, 0, LY, -0.9, Math.PI / 2, 0, 0, 12, 0.9);
-  cyl('canvasDark', 0.004, 0.105, 0.38, 0, LY, -1.3, Math.PI / 2, 0, 0, 12, 0.9);
+  cyl('canvasDark', 0.105, 0.004, 0.38, 0, LY, -1.3, Math.PI / 2, 0, 0, 12, 0.9);
   for (const z of [-0.72, -1.06]) cyl('rust', 0.109, 0.109, 0.028, 0, LY, z, Math.PI / 2, 0, 0, 12);
-  // ------------------------------------------------- spare rocket on the shelf
-  const SY = 0.46;
-  cyl('canvasDark', 0.05, 0.05, 0.72, 0, SY, -0.1, Math.PI / 2, 0, 0, 10, 0.9);
-  cyl('canvasDark', 0.002, 0.05, 0.16, 0, SY, -0.54, Math.PI / 2, 0, 0, 10, 0.9);
-  for (const z of [-0.34, 0.14]) cyl('rust', 0.053, 0.053, 0.025, 0, SY, z, Math.PI / 2, 0, 0, 10);
-  box('metalDark', 0.02, 0.12, 0.2, 0, SY + 0.06, 0.24);
-  box('metalDark', 0.02, 0.12, 0.2, 0, SY - 0.06, 0.24);
-  box('metalDark', 0.12, 0.02, 0.2, 0.06, SY, 0.24);
-  box('metalDark', 0.12, 0.02, 0.2, -0.06, SY, 0.24);
-  box('wood', 0.16, 0.05, 0.12, 0, SY - 0.06, -0.36);
-  box('wood', 0.16, 0.05, 0.12, 0, SY - 0.06, 0.1);
+  // ---------------------------------------- gloved hands + sleeve stubs (held)
+  // right hand wraps the pistol grip, left hand supports the foregrip; the
+  // sleeve stubs drop back out of frame exactly like the other viewmodels
+  box('dark', 0.1, 0.13, 0.13, 0.012, LY - 0.2, 0.27, -0.2);
+  for (let i = 0; i < 4; i++) {
+    box('dark', 0.022, 0.07, 0.06, -0.033 + i * 0.022, LY - 0.245, 0.315, -0.45);
+  }
+  box('dark', 0.03, 0.06, 0.09, 0.06, LY - 0.15, 0.2, -0.05);
+  box('metalDark', 0.11, 0.06, 0.11, 0.02, LY - 0.3, 0.33, -0.2);
+  rod('tarp', 0.02, LY - 0.32, 0.35, 0.14, LY - 0.8, 0.98, 0.072);
+  rod('tarp', 0.045, LY - 0.45, 0.51, 0.14, LY - 0.8, 0.98, 0.082);
+
+  box('dark', 0.095, 0.11, 0.13, -0.005, LY - 0.19, -0.3, 0.14);
+  for (let i = 0; i < 4; i++) {
+    box('dark', 0.022, 0.06, 0.055, -0.033 + i * 0.022, LY - 0.235, -0.35, 0.45);
+  }
+  box('dark', 0.03, 0.055, 0.08, -0.055, LY - 0.15, -0.26, 0.2);
+  box('metalDark', 0.1, 0.06, 0.1, -0.01, LY - 0.28, -0.37, 0.16);
+  rod('tarp', -0.01, LY - 0.3, -0.4, -0.16, LY - 0.72, 0.12, 0.068);
+  rod('tarp', -0.04, LY - 0.4, -0.27, -0.16, LY - 0.72, 0.12, 0.078);
 }
 
 export {
