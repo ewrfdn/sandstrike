@@ -3920,6 +3920,108 @@ export async function createWorld(scene, renderer, { quality = 'high', onProgres
 // effect on the shipping game: createWorld() never calls anything below.
 // ===========================================================================
 
+/**
+ * RPG-7 style rocket launcher, staged on a workshop display cradle with a spare
+ * rocket on the lower shelf.  Design study only: nothing places this in the map.
+ */
+function buildRpgLauncher(ctx) {
+  const UNIT = new THREE.Vector3(1, 1, 1);
+  const _e = new THREE.Euler();
+  const _q = new THREE.Quaternion();
+  const _v = new THREE.Vector3();
+  const _m = new THREE.Matrix4();
+  const place = (key, geo, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    _e.set(rx, ry, rz, 'YXZ');
+    _q.setFromEuler(_e);
+    _v.set(x, y, z);
+    _m.compose(_v, _q, UNIT);
+    ctx.batcher.add(key, geo, _m);
+    geo.dispose();
+  };
+  const box = (key, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0, tile = 1.2) =>
+    place(key, boxGeometryWorldUV(w, h, d, tile), x, y, z, rx, ry, rz);
+  const cyl = (key, rTop, rBottom, h, x, y, z, rx = 0, ry = 0, rz = 0, radial = 12, tile = 1.2) =>
+    place(key, cylinderWorldUV(rTop, rBottom, h, radial, tile), x, y, z, rx, ry, rz);
+  const rod = (key, ax, ay, az, bx, by, bz, radius, radial = 6) => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-4) return;
+    _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / len, dy / len, dz / len));
+    _m.compose(new THREE.Vector3((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2), _q, UNIT);
+    const g = cylinderWorldUV(radius, radius, len, radial, 1.2);
+    ctx.batcher.add(key, g, _m);
+    g.dispose();
+  };
+
+  // ------------------------------------------------------------ display cradle
+  for (const x of [-0.55, 0.55]) {
+    box('metalDark', 0.1, 0.08, 1.95, x, 0.04, 0, 0, 0, 0, 1.5);          // runner
+    box('rust', 0.22, 0.03, 0.24, x, 0.015, -0.8, 0, 0, 0, 1.2);          // foot pads
+    box('rust', 0.22, 0.03, 0.24, x, 0.015, 0.8, 0, 0, 0, 1.2);
+  }
+  for (const z of [-0.55, 0.55]) {
+    for (const side of [-1, 1]) {
+      rod('metalDark', side * 0.46, 0.08, z, side * 0.26, 1.16, z, 0.045);  // upright
+    }
+    box('metalDark', 0.62, 0.08, 0.1, 0, 1.16, z, 0, 0, 0, 1.4);           // cradle crossbar
+    for (const side of [-1, 1]) {
+      box('wood', 0.12, 0.1, 0.09, side * 0.2, 1.24, z, 0, 0, side * 0.5); // V block
+    }
+  }
+  rod('metalDark', -0.42, 0.35, -0.55, -0.42, 0.35, 0.55, 0.03);           // lower rails
+  rod('metalDark', 0.42, 0.35, -0.55, 0.42, 0.35, 0.55, 0.03);
+  rod('metalDark', -0.44, 0.12, -0.55, 0.44, 0.95, 0.55, 0.022);           // diagonal brace
+
+  // ------------------------------------------------------------- the launcher
+  const LY = 1.33;
+  cyl('metalDark', 0.05, 0.05, 1.35, 0, LY, 0, Math.PI / 2, 0, 0, 12);     // launch tube
+  cyl('metalDark', 0.108, 0.05, 0.24, 0, LY, 0.77, Math.PI / 2, 0, 0, 12); // rear venturi
+  cyl('rust', 0.112, 0.112, 0.03, 0, LY, 0.88, Math.PI / 2, 0, 0, 12);     // venturi rim
+  cyl('dark', 0.07, 0.07, 0.03, 0, LY, 0.7, Math.PI / 2, 0, 0, 12);        // tube rear cap
+  // wooden heat shield + metal bands
+  cyl('wood', 0.079, 0.079, 0.5, 0, LY, 0.12, Math.PI / 2, 0, 0, 14, 0.9);
+  for (const z of [-0.12, 0.34]) cyl('metalDark', 0.086, 0.086, 0.035, 0, LY, z, Math.PI / 2, 0, 0, 14);
+  // grips + trigger group
+  box('wood', 0.06, 0.16, 0.1, 0, LY - 0.13, -0.3, 0.16);
+  box('wood', 0.07, 0.2, 0.11, 0, LY - 0.17, 0.24, -0.22);
+  box('metal', 0.035, 0.09, 0.05, 0, LY - 0.09, 0.2, -0.1);
+  box('metalDark', 0.02, 0.02, 0.16, 0, LY - 0.12, 0.14, 0.2);
+  rod('metalDark', 0, LY - 0.2, 0.31, 0, LY - 0.24, 0.12, 0.011);
+  rod('metalDark', 0, LY - 0.24, 0.12, 0, LY - 0.14, 0.07, 0.011);
+  // iron sights: front post + ring, rear aperture + elevation drum
+  box('dark', 0.03, 0.13, 0.05, 0, LY + 0.1, -0.44);
+  place('metalDark', new THREE.TorusGeometry(0.045, 0.01, 5, 10), 0, LY + 0.13, -0.44);
+  box('dark', 0.12, 0.05, 0.09, 0, LY + 0.11, 0.03);
+  place('metalDark', new THREE.TorusGeometry(0.03, 0.008, 5, 10), 0, LY + 0.12, 0.03);
+  cyl('metal', 0.03, 0.03, 0.14, 0.09, LY + 0.1, 0.03, 0, 0, Math.PI / 2, 8);
+  box('dark', 0.045, 0.035, 0.34, 0.065, LY + 0.085, -0.16);               // optic rail
+  // canvas sling
+  for (const seg of [
+    [0.06, LY + 0.04, -0.55, 0.075, LY - 0.1, -0.2],
+    [0.075, LY - 0.1, -0.2, 0.075, LY - 0.12, 0.25],
+    [0.075, LY - 0.12, 0.25, 0.06, LY + 0.03, 0.62],
+  ]) rod('canvasDark', ...seg, 0.012);
+  // stencilled bands on the tube
+  for (const z of [-0.36, 0.52]) box('rust', 0.104, 0.012, 0.03, 0, LY + 0.002, z);
+  // loaded PG-7 warhead: body, nose cone, bands
+  cyl('canvasDark', 0.105, 0.105, 0.44, 0, LY, -0.9, Math.PI / 2, 0, 0, 12, 0.9);
+  cyl('canvasDark', 0.004, 0.105, 0.38, 0, LY, -1.3, Math.PI / 2, 0, 0, 12, 0.9);
+  for (const z of [-0.72, -1.06]) cyl('rust', 0.109, 0.109, 0.028, 0, LY, z, Math.PI / 2, 0, 0, 12);
+  // ------------------------------------------------- spare rocket on the shelf
+  const SY = 0.46;
+  cyl('canvasDark', 0.05, 0.05, 0.72, 0, SY, -0.1, Math.PI / 2, 0, 0, 10, 0.9);
+  cyl('canvasDark', 0.002, 0.05, 0.16, 0, SY, -0.54, Math.PI / 2, 0, 0, 10, 0.9);
+  for (const z of [-0.34, 0.14]) cyl('rust', 0.053, 0.053, 0.025, 0, SY, z, Math.PI / 2, 0, 0, 10);
+  box('metalDark', 0.02, 0.12, 0.2, 0, SY + 0.06, 0.24);
+  box('metalDark', 0.02, 0.12, 0.2, 0, SY - 0.06, 0.24);
+  box('metalDark', 0.12, 0.02, 0.2, 0.06, SY, 0.24);
+  box('metalDark', 0.12, 0.02, 0.2, -0.06, SY, 0.24);
+  box('wood', 0.16, 0.05, 0.12, 0, SY - 0.06, -0.36);
+  box('wood', 0.16, 0.05, 0.12, 0, SY - 0.06, 0.1);
+}
+
 export {
   buildWorldData,
   createMaterials,
@@ -3956,5 +4058,6 @@ export {
   buildLanterns,
   buildPracticalLights,
   buildSiteDressing,
+  buildRpgLauncher,
   mergePlanes,
 };

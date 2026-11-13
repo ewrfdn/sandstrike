@@ -45,6 +45,7 @@ import {
   buildLampPosts,
   buildFlagpoles,
   buildALongShade,
+  buildRpgLauncher,
   buildCloths,
   buildDecalsAndPosters,
   buildLanterns,
@@ -403,8 +404,10 @@ const CATALOG = [
   { id: 'robot-rifleman', kind: 'robot', group: 'robots', label: 'VULTURE-3 · 步枪机', type: 'rifleman', defaultPose: 'base' },
   { id: 'robot-heavy', kind: 'robot', group: 'robots', label: 'BULWARK-7 · 重装机', type: 'heavy', defaultPose: 'base' },
   { id: 'robot-warlord', kind: 'robot', group: 'robots', label: 'KHARON-Ω · 监军', type: 'warlord', defaultPose: 'base' },
+  { id: 'robot-boss', kind: 'robot', group: 'robots', label: 'SIEGE WARDEN · 攻城督军', type: 'boss', defaultPose: 'base' },
 
   // ---- first-person weapon --------------------------------------------------------
+  { id: 'rpg-launcher', kind: 'world', group: 'weapon', label: 'RPG-7 · 火箭筒（展示架）', build: (ctx) => buildRpgLauncher(ctx) },
   { id: 'weapon-vxr7', kind: 'weapon', group: 'weapon', label: 'VXR-7 · 视模 VIEWMODEL', lift: true },
 ];
 
