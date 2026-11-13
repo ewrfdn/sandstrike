@@ -53,6 +53,8 @@ const state = {
   pose: 'base',
   showToken: 0,
   lastStats: null,
+  baseMeta: '',
+  orbit: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -197,15 +199,56 @@ function buildControls() {
     button.addEventListener('click', () => setPose(pose));
     el.poseButtons.appendChild(button);
   }
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.className = 'view-btn';
+  reset.id = 'view-reset';
+  reset.textContent = 'RESET';
+  reset.title = '回到当前预置视角（也可双击画布复位）';
+  reset.addEventListener('click', () => {
+    const api = stage();
+    if (!api) return;
+    if (api.resetOrbit) api.resetOrbit();
+    else setView('three-quarter');
+    api.render();
+    if (api.orbitState) onCameraChange(api.orbitState());
+  });
+  el.viewButtons.appendChild(reset);
+}
+
+function refreshInfoMeta() {
+  const parts = [];
+  if (state.baseMeta) parts.push(state.baseMeta);
+  const orbit = state.orbit;
+  if (orbit) {
+    const az = Number(orbit.az);
+    const el = Number(orbit.el);
+    const zoom = Number(orbit.distScale);
+    parts.push(
+      `AZ ${Math.round(az)}°    EL ${Math.round(el)}°    ZOOM ${zoom.toFixed(2)}${orbit.custom ? '    CUSTOM ORBIT' : ''}`
+    );
+  }
+  if (parts.length) el.infoMeta.textContent = parts.join('\n');
+}
+
+/** Camera state pushed by the stage whenever the user drags / wheels / resets. */
+function onCameraChange(orbit) {
+  state.orbit = orbit || null;
+  refreshInfoMeta();
+  const activePreset = orbit && !orbit.custom ? orbit.name : null;
+  el.viewButtons.querySelectorAll('.view-btn[data-view]').forEach((button) => {
+    button.classList.toggle('on', button.dataset.view === activePreset);
+  });
 }
 
 function setView(view) {
   state.view = view;
-  el.viewButtons.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
+  el.viewButtons.querySelectorAll('.view-btn[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   const api = stage();
   if (!api || !api.current || !api.current()) return;
   api.setView(view);
   api.render();
+  if (api.orbitState) onCameraChange(api.orbitState());
 }
 
 function setPose(pose) {
@@ -217,6 +260,7 @@ function setPose(pose) {
   try {
     const stats = api.setPose(pose);
     updateInfo(stats);
+    if (api.orbitState) onCameraChange(api.orbitState());
   } catch (error) {
     showError(error);
   }
@@ -233,6 +277,8 @@ function updateInfo(stats) {
     `TRIS ${Number(stats.triangles).toLocaleString('en-US')}    MESH ${stats.meshes}    VERTS ${Number(stats.verts).toLocaleString('en-US')}${stats.pose ? '    POSE ' + String(stats.pose).toUpperCase() : ''}`,
   ];
   el.infoMeta.textContent = lines.join('\n');
+  state.baseMeta = lines.join('\n');
+  refreshInfoMeta();
   el.viewer.title = `${stats.id} — ${stats.label || ''}`;
 }
 
@@ -280,6 +326,7 @@ async function selectModel(id, { replaceUrl = true } = {}) {
     }
     if (token !== state.showToken) return;
     updateInfo(stats);
+    if (api.orbitState) onCameraChange(api.orbitState());
     if (!state.activeIsRobot) {
       el.poseButtons.querySelectorAll('.pose-btn').forEach((button) => { button.disabled = true; });
     }
@@ -336,6 +383,7 @@ async function boot() {
   try {
     const api = await waitForStage();
     hideStageChrome();
+    api.onCameraChange = onCameraChange;
     state.models = (api.models || []).slice();
     buildSidebar();
     buildControls();

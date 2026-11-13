@@ -183,6 +183,20 @@ let weapon = null;
 let sceneBuilt = false;
 let debugMissingMaterials = new Set();
 
+// Free-orbit state (degrees / relative zoom). Drag on the canvas orbits the
+// camera around the model; wheel zooms; double-click resets to the last preset.
+const ORBIT_EL_MIN = -18;
+const ORBIT_EL_MAX = 82;
+const ORBIT_MIN_ZOOM = 0.35;
+const ORBIT_MAX_ZOOM = 3.5;
+const orbit = {
+  az: VIEW_PRESETS['three-quarter'].az,
+  el: VIEW_PRESETS['three-quarter'].el,
+  distScale: 1,
+  custom: false,
+  lastPreset: 'three-quarter',
+};
+
 const _box = new THREE.Box3();
 const _tmpBox = new THREE.Box3();
 const _mat4 = new THREE.Matrix4();
@@ -331,32 +345,7 @@ function updateStageLights(center) {
   for (const light of [stageKey, stageRim, stageFill]) light.target.updateMatrixWorld(true);
 }
 
-function setView(viewName = 'three-quarter', { distScale = 1 } = {}) {
-  if (!current) return null;
-  const preset = VIEW_PRESETS[viewName] || VIEW_PRESETS['three-quarter'];
-  const az = THREE.MathUtils.degToRad(preset.az);
-  const el = THREE.MathUtils.degToRad(preset.el);
-  const box = current.box;
-  const center = new THREE.Vector3();
-  const size = new THREE.Vector3();
-  box.getCenter(center);
-  box.getSize(size);
-  const radius = Math.max(0.35, size.length() * 0.5);
-  const fov = THREE.MathUtils.degToRad(camera.fov);
-  const dist = (radius / Math.sin(fov / 2)) * 1.12 * distScale;
-  const dir = new THREE.Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
-  camera.position.copy(center).addScaledVector(dir, dist);
-  camera.near = Math.max(0.02, dist * 0.01);
-  camera.far = dist * 8 + 120;
-  camera.lookAt(center);
-  camera.updateProjectionMatrix();
-  camera.updateMatrixWorld(true);
-  updateStageLights(center);
-  current.view = { name: viewName, az: preset.az, el: preset.el, dist: +dist.toFixed(3) };
-  return current.view;
-}
-
-function setCustomView({ az = 35, el = 17, distScale = 1 } = {}) {
+function frameCamera(azDeg, elDeg, distScale) {
   if (!current) return null;
   const box = current.box;
   const center = new THREE.Vector3();
@@ -366,8 +355,8 @@ function setCustomView({ az = 35, el = 17, distScale = 1 } = {}) {
   const radius = Math.max(0.35, size.length() * 0.5);
   const fov = THREE.MathUtils.degToRad(camera.fov);
   const dist = (radius / Math.sin(fov / 2)) * 1.12 * distScale;
-  const a = THREE.MathUtils.degToRad(az);
-  const e = THREE.MathUtils.degToRad(el);
+  const a = THREE.MathUtils.degToRad(azDeg);
+  const e = THREE.MathUtils.degToRad(elDeg);
   camera.position.set(
     center.x + Math.cos(e) * Math.sin(a) * dist,
     center.y + Math.sin(e) * dist,
@@ -379,8 +368,148 @@ function setCustomView({ az = 35, el = 17, distScale = 1 } = {}) {
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld(true);
   updateStageLights(center);
-  current.view = { name: 'custom', az, el, dist: +dist.toFixed(3) };
+  orbit.az = +azDeg.toFixed(2);
+  orbit.el = +elDeg.toFixed(2);
+  orbit.distScale = distScale;
+  return { center, dist };
+}
+
+function orbitState() {
+  return {
+    az: orbit.az,
+    el: orbit.el,
+    distScale: orbit.distScale,
+    custom: orbit.custom,
+    name: current ? current.view?.name || 'custom' : null,
+    preset: orbit.lastPreset,
+  };
+}
+
+function notifyOrbit() {
+  const api = window.__stage;
+  if (!api || typeof api.onCameraChange !== 'function') return;
+  try {
+    api.onCameraChange(orbitState());
+  } catch (_) {
+    /* viewer callback must never break the stage */
+  }
+}
+
+function setView(viewName = 'three-quarter', { distScale = 1 } = {}) {
+  if (!current) return null;
+  const known = !!VIEW_PRESETS[viewName];
+  const preset = VIEW_PRESETS[viewName] || VIEW_PRESETS['three-quarter'];
+  orbit.custom = false;
+  orbit.lastPreset = known ? viewName : 'three-quarter';
+  const framed = frameCamera(preset.az, preset.el, Math.max(0.05, distScale));
+  if (!framed) return null;
+  current.view = { name: orbit.lastPreset, az: preset.az, el: preset.el, dist: +framed.dist.toFixed(3) };
+  notifyOrbit();
   return current.view;
+}
+
+function setCustomView({ az = orbit.az, el = orbit.el, distScale = orbit.distScale } = {}) {
+  if (!current) return null;
+  orbit.custom = true;
+  const framed = frameCamera(az, el, Math.max(0.05, distScale));
+  if (!framed) return null;
+  current.view = { name: 'custom', az, el, dist: +framed.dist.toFixed(3) };
+  notifyOrbit();
+  return current.view;
+}
+
+/** Orbit by a pixel delta (drag). Returns the new orbit state. */
+function orbitBy(dx, dy, { renderNow = true } = {}) {
+  if (!current) return orbitState();
+  orbit.az = (((orbit.az - dx * 0.32) % 360) + 360) % 360;
+  orbit.el = THREE.MathUtils.clamp(orbit.el + dy * 0.25, ORBIT_EL_MIN, ORBIT_EL_MAX);
+  orbit.custom = true;
+  const framed = frameCamera(orbit.az, orbit.el, orbit.distScale);
+  if (framed) current.view = { name: 'custom', az: orbit.az, el: orbit.el, dist: +framed.dist.toFixed(3) };
+  if (renderNow) render();
+  notifyOrbit();
+  return orbitState();
+}
+
+/** Multiply the orbit distance (wheel zoom). Returns the new orbit state. */
+function zoomBy(factor) {
+  if (!current) return orbitState();
+  orbit.distScale = THREE.MathUtils.clamp(orbit.distScale * factor, ORBIT_MIN_ZOOM, ORBIT_MAX_ZOOM);
+  orbit.custom = true;
+  const framed = frameCamera(orbit.az, orbit.el, orbit.distScale);
+  if (framed) current.view = { name: 'custom', az: orbit.az, el: orbit.el, dist: +framed.dist.toFixed(3) };
+  render();
+  notifyOrbit();
+  return orbitState();
+}
+
+/** Return to the last named preset (double-click / reset button). */
+function resetOrbit() {
+  return setView(orbit.lastPreset || 'three-quarter');
+}
+
+function bindOrbitControls() {
+  let dragging = false;
+  let pointerId = null;
+  let lastX = 0;
+  let lastY = 0;
+
+  const onPointerDown = (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    if (!current) return;
+    dragging = true;
+    pointerId = event.pointerId;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch (_) {
+      /* best effort */
+    }
+    canvas.style.cursor = 'grabbing';
+    event.preventDefault();
+  };
+
+  const onPointerMove = (event) => {
+    if (!dragging) return;
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    if (dx === 0 && dy === 0) return;
+    orbitBy(dx, dy);
+    event.preventDefault();
+  };
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (pointerId !== null) {
+      try {
+        canvas.releasePointerCapture?.(pointerId);
+      } catch (_) {
+        /* best effort */
+      }
+    }
+    pointerId = null;
+    canvas.style.cursor = 'grab';
+  };
+
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('wheel', (event) => {
+    if (!current) return;
+    event.preventDefault();
+    zoomBy(Math.exp(event.deltaY * 0.0015));
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => {
+    resetOrbit();
+    render();
+  });
+  canvas.style.cursor = 'grab';
+  canvas.style.touchAction = 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -537,7 +666,9 @@ function setPose(name) {
   current.preview.applyPose(name);
   current.group.updateMatrixWorld(true);
   current.stats = collectStats(current.entry, current.group, computeBox(current.group), name);
-  setView(current.view?.name || 'three-quarter');
+  // keep the free-orbit orientation when the user has rotated the model
+  if (orbit.custom) setCustomView({ az: orbit.az, el: orbit.el, distScale: orbit.distScale });
+  else setView(current.view?.name || orbit.lastPreset || 'three-quarter');
   render();
   updateHud(current.stats);
   return current.stats;
@@ -549,6 +680,7 @@ function setPose(name) {
 async function boot() {
   resize();
   window.addEventListener('resize', resize);
+  bindOrbitControls();
   statusEl.textContent = 'GENERATING PROCEDURAL TEXTURES…';
 
   tex = await createTextureLibrary(renderer, {
@@ -631,6 +763,12 @@ window.__stage = {
   setCustomView,
   setPose,
   renderSheet,
+  orbitState,
+  orbitBy,
+  zoomBy,
+  resetOrbit,
+  /** Assigned by the dev model viewer so its UI can follow drag/wheel orbits. */
+  onCameraChange: null,
   setHitboxes(visible = true) {
     if (!current || !current.preview) return 0;
     return current.preview.setHitboxesVisible(visible);
