@@ -64,7 +64,7 @@ export const WORLD_MODELS = [
   { module: midGate },
   { module: banner, stage: { support: 'banner' } },
   { module: flag },
-  { module: awning, stage: { support: 'awning' } },
+  { module: awning },
   { module: lampPost },
   { module: flagpole },
   { module: aLongShade },
