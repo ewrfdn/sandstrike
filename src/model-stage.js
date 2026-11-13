@@ -1,10 +1,14 @@
 /**
  * SANDSTRIKE // sandstorm protocol — DEV MODEL STAGE
  *
- * Isolated model preview for visual QA. Every model is rebuilt from the real
- * procedural builder into an empty studio scene, placed on a platform, and
- * framed by a turntable camera. Nothing here is part of the shipping game:
- * stage.html is a dev-only page and `?dev=1` is not required.
+ * Isolated per-model preview harness. Every model is rebuilt from its own module
+ * under src/models/ into an empty studio scene, placed on a platform, and framed
+ * by a turntable camera. The catalog comes from src/models/index.js, so adding a
+ * model module is enough to make it appear here.
+ *
+ * Nothing here is part of the shipping game:
+ *   - automation: stage.html (used by scripts/model-shots.mjs)
+ *   - dev WebUI:  models.html?dev (gated, see src/models-viewer.js)
  *
  * URL params:
  *   ?m=<modelId>       show this model on boot
@@ -24,34 +28,13 @@ import {
   ensureBatches,
   buildEnvironment,
   buildLights,
-  buildMidWall,
-  buildBazaarRows,
-  buildWarehouseBlocks,
-  buildLowWalls,
-  buildColonnade,
-  buildSiteArches,
-  addArchMesh,
-  buildInstancedProps,
-  buildWell,
-  buildTruck,
-  buildStalls,
-  buildWindmill,
-  buildRadar,
-  buildCarts,
-  buildCampfire,
-  buildAPlatform,
-  buildBWreck,
-  buildPipeline,
-  buildLampPosts,
-  buildFlagpoles,
-  buildALongShade,
-  buildRpgLauncher,
   buildCloths,
   buildDecalsAndPosters,
   buildLanterns,
   buildPracticalLights,
 } from './world.js';
-import { createRobotPreview } from './enemies.js';
+import { MODEL_CATALOG } from './models/index.js';
+import { createRobotPreview } from './models/robots/index.js';
 import { WeaponSystem } from './weapons.js';
 
 const params = new URLSearchParams(location.search);
@@ -180,236 +163,7 @@ function addStageSupports(group, kind) {
  * label: HUD label
  * group: QA bucket
  */
-const CATALOG = [
-  // ---- instanced clutter families -------------------------------------------------
-  {
-    id: 'crate', kind: 'world', group: 'clutter', label: '木箱堆 · CRATE STACK',
-    build(ctx) {
-      ctx.stageFilter = 'crates';
-      ctx.data.layout.crates = [{ x: 0, z: 0, s: 1.0, ry: 0.35, stack: 3 }];
-      buildInstancedProps(ctx);
-    },
-  },
-  {
-    id: 'barrel', kind: 'world', group: 'clutter', label: '油桶 · FUEL DRUMS',
-    build(ctx) {
-      ctx.stageFilter = 'barrels';
-      ctx.data.layout.barrels = [{ x: -0.5, z: 0.1, yaw: 0.2 }, { x: 0.55, z: -0.1, yaw: 1.4 }];
-      buildInstancedProps(ctx);
-    },
-  },
-  {
-    id: 'sandbag', kind: 'world', group: 'clutter', label: '沙袋墙 · SANDBAG RUN',
-    build(ctx) {
-      ctx.stageFilter = 'sandbags';
-      ctx.data.layout.sandbagRuns = [[0, 0, 2.6, 0.95, 0.9]];
-      buildInstancedProps(ctx);
-    },
-  },
-  {
-    id: 'palm', kind: 'world', group: 'clutter', label: '棕榈树 · PALM',
-    build(ctx) {
-      ctx.stageFilter = 'palms';
-      ctx.data.layout.palms = [{ x: 0, z: 0, s: 1.05, ry: 0.4 }];
-      buildInstancedProps(ctx);
-    },
-  },
-  {
-    id: 'rubble', kind: 'world', group: 'clutter', label: '碎石堆 · RUBBLE',
-    build(ctx) {
-      ctx.stageFilter = 'rubble';
-      buildInstancedProps(ctx);
-    },
-  },
-  {
-    id: 'tires', kind: 'world', group: 'clutter', label: '轮胎堆 · TIRE STACK',
-    build(ctx) {
-      ctx.stageFilter = 'tires';
-      buildInstancedProps(ctx);
-    },
-  },
-  {
-    id: 'sacks', kind: 'world', group: 'clutter', label: '麻袋堆 · SACK PILE',
-    build(ctx) {
-      ctx.stageFilter = 'sacks';
-      buildInstancedProps(ctx);
-    },
-  },
-
-  // ---- hero props -----------------------------------------------------------------
-  { id: 'well', kind: 'world', group: 'hero', label: '水井 · WELL', build: (ctx) => buildWell(ctx) },
-  { id: 'truck', kind: 'world', group: 'hero', label: '卡车 · CARGO TRUCK', rotY: Math.PI / 2, build: (ctx) => buildTruck(ctx) },
-  { id: 'windmill', kind: 'world', group: 'hero', label: '风车 · WINDMILL', build: (ctx) => buildWindmill(ctx) },
-  { id: 'radar', kind: 'world', group: 'hero', label: '雷达塔 · RADAR MAST', build: (ctx) => buildRadar(ctx) },
-  { id: 'cart', kind: 'world', group: 'hero', label: '平板车 · HAND CART', build: (ctx) => { ctx.stagePick = 'cart'; buildCarts(ctx); } },
-  { id: 'campfire', kind: 'world', group: 'hero', label: '篝火 · CAMPFIRE', build: (ctx) => buildCampfire(ctx) },
-  { id: 'a-platform', kind: 'world', group: 'hero', label: 'A点瞭望台 · WATCH PLATFORM', build: (ctx) => buildAPlatform(ctx) },
-  { id: 'b-wreck', kind: 'world', group: 'hero', label: 'B点残骸 · WRECK', build: (ctx) => buildBWreck(ctx) },
-  {
-    id: 'pipeline', kind: 'world', group: 'hero', label: '管线 · PIPE RUN', build(ctx) {
-      ctx.stagePick = 'pipeline';
-      buildPipeline(ctx);
-      // QA scaffolding: the real pipe run is bolted to the north boundary wall.
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(6, 3.4, 0.3), new THREE.MeshStandardMaterial({ color: 0x8a6a49, roughness: 0.95 }));
-      wall.position.set(0, 1.7, -0.62);
-      wall.receiveShadow = true;
-      ctx.scene.add(wall);
-    }
-  },
-  {
-    id: 'stall', kind: 'world', group: 'hero', label: '集市摊位 · MARKET STALL',
-    build(ctx) {
-      ctx.data.layout.stalls = [{ x: 0, z: 0, ry: 0 }];
-      buildStalls(ctx);
-    },
-  },
-  {
-    id: 'monument', kind: 'world', group: 'hero', label: '纪念碑 · MONUMENT',
-    build(ctx) {
-      ctx.data.layout.pillars = [];
-      ctx.stagePick = 'monument';
-      buildColonnade(ctx);
-    },
-  },
-
-  // ---- architecture ---------------------------------------------------------------
-  {
-    id: 'bazaar-shop', kind: 'world', group: 'architecture', label: '集市店铺 · BAZAAR SHOP',
-    build(ctx) {
-      ctx.data.layout.buildings = [{ x: 0, z: 0, w: 5.6, d: 8.2, h: 5.2, style: 'shop', rows: 2 }];
-      ctx.data.layout.arches = [];
-      buildBazaarRows(ctx);
-      addArchMesh(ctx, { x: 0, z: 0, span: 3.0, height: 4.4, depth: 5.6, pierW: 0.08, rot: Math.PI / 2, style: 'adobe' });
-    },
-  },
-  {
-    id: 'warehouse', kind: 'world', group: 'architecture', label: '仓库块 · WAREHOUSE BLOCK',
-    build(ctx) {
-      ctx.data.layout.blocks = [{ x: 0, z: 0, w: 5.5, d: 4.0, h: 5.4, lane: 'A LONG', door: null }];
-      buildWarehouseBlocks(ctx);
-    },
-  },
-  {
-    id: 'low-wall', kind: 'world', group: 'architecture', label: '矮墙 · LOW COVER WALL',
-    build(ctx) {
-      ctx.data.layout.lowWalls = [{ x: 0, z: 0, w: 4.0, d: 0.7, h: 1.25, surface: 'stone' }];
-      buildLowWalls(ctx);
-    },
-  },
-  {
-    id: 'pillar', kind: 'world', group: 'architecture', label: '石柱 · COLONNADE PILLAR',
-    build(ctx) {
-      ctx.data.layout.pillars = [{ x: 0, z: 0, w: 0.95, d: 0.95, h: 4.0, style: 'stone' }];
-      ctx.stagePick = 'pillar';
-      buildColonnade(ctx);
-    },
-  },
-  {
-    id: 'shade-sail', kind: 'world', group: 'architecture', label: '遮阳帆布 · SHADE SAIL',
-    build(ctx) {
-      ctx.data.layout.pillars = [];
-      ctx.stagePick = 'sails';
-      buildColonnade(ctx);
-      // QA scaffolding: the sail is strung between courtyard pillars; stand in
-      // four posts so the cloth's attachment height can be judged physically.
-      for (const [x, z] of [[-6.9, -20.0], [6.9, -20.0], [-5.3, -10.3], [5.3, -10.3]]) {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 4.4, 8), SUPPORT_MAT);
-        post.position.set(x, 2.2, z);
-        post.castShadow = true;
-        ctx.scene.add(post);
-      }
-    },
-  },
-  {
-    id: 'site-arch', kind: 'world', group: 'architecture', label: 'A点拱门 · SITE ARCH',
-    build(ctx) {
-      ctx.data.layout.siteArches = [BASE_DATA.layout.siteArches[0]];
-      buildSiteArches(ctx);
-    },
-  },
-  {
-    id: 'portal-arch', kind: 'world', group: 'architecture', label: '中门侧拱 · PORTAL ARCH',
-    build(ctx) {
-      addArchMesh(ctx, { x: 0, z: 0, span: 6.0, height: 4.4, depth: 1.6, pierW: 0.3, rot: 0, style: 'stone' });
-    },
-  },
-  {
-    id: 'tunnel-arch', kind: 'world', group: 'architecture', label: '隧道拱 · TUNNEL ARCH',
-    build(ctx) {
-      addArchMesh(ctx, BASE_DATA.layout.tunnelArches[0]);
-    },
-  },
-  {
-    id: 'mid-gate', kind: 'world', group: 'architecture', label: '中门 · MID GATE',
-    build(ctx) {
-      ctx.stagePick = 'gate';
-      ctx.data.layout.walls = [];
-      ctx.data.layout.arches = [BASE_DATA.layout.arches.find((a) => a.label === 'MID GATE')];
-      buildMidWall(ctx);
-    },
-  },
-
-  // ---- cloth samples (stage supplies its own minimal rigging) ---------------------
-  {
-    id: 'banner', kind: 'world', group: 'cloth', label: '条幅 · BANNER', support: 'banner',
-    build(ctx) {
-      addStageSupports(ctx.scene, 'banner');
-      ctx.req.banners.push({ key: 'title', x: 0, y: 2.55, z: 0, ry: 0, w: 2.4, h: 3.2, sway: 0.03, anchor: 'top' });
-    },
-  },
-  {
-    id: 'flag', kind: 'world', group: 'cloth', label: '旗帜 · FLAG', support: 'flag',
-    build(ctx) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 5.0, 8), SUPPORT_MAT);
-      pole.position.set(-0.1, 2.5, 0);
-      pole.castShadow = true;
-      ctx.scene.add(pole);
-      ctx.req.flags.push({ x: -0.1, y: 4.7, z: 0, w: 2.3, h: 1.5, ry: 0, key: 'warn', phase: 0.8 });
-    },
-  },
-  {
-    id: 'awning', kind: 'world', group: 'cloth', label: '遮阳篷 · AWNING', support: 'awning',
-    build(ctx) {
-      addStageSupports(ctx.scene, 'awning');
-      ctx.req.awnings.push({ type: 'awning', x: 0, y: 3.05, z: 0, ry: 0, w: 3.4, d: 3.0, key: 'awning', pitch: 0.3 });
-    },
-  },
-
-  // ---- rebuilt / previously missing fixtures (post-defect-fix QA) -----------------
-  {
-    id: 'lamp-post', kind: 'world', group: 'architecture', label: '路灯 · LAMP POST',
-    build(ctx) {
-      ctx.data.layout.lampPosts = [[0, 0]];
-      buildLampPosts(ctx);
-    },
-  },
-  {
-    id: 'flagpole', kind: 'world', group: 'cloth', label: '旗杆+旗 · FLAGPOLE',
-    build(ctx) {
-      ctx.data.layout.hero.flagpoles = [{ x: 0, z: 0, h: 7.6 }];
-      buildFlagpoles(ctx);
-      ctx.req.flags.push({ x: 0, y: 7.25, z: 0, w: 2.3, h: 1.5, ry: 0.35, key: 'title', phase: 0.8 });
-    },
-  },
-  {
-    id: 'a-long-shade', kind: 'world', group: 'architecture', label: 'A长道遮阳 · A-LONG SHADE',
-    build(ctx) {
-      ctx.data.layout.hero.aLongShade = { x: 0, z: 0, zs: [-1.6, 0, 1.6] };
-      buildALongShade(ctx);
-    },
-  },
-
-  // ---- robots ---------------------------------------------------------------------
-  { id: 'robot-scout', kind: 'robot', group: 'robots', label: 'SCATTER-9 · 侦察机', type: 'scout', defaultPose: 'base' },
-  { id: 'robot-rifleman', kind: 'robot', group: 'robots', label: 'VULTURE-3 · 步枪机', type: 'rifleman', defaultPose: 'base' },
-  { id: 'robot-heavy', kind: 'robot', group: 'robots', label: 'BULWARK-7 · 重装机', type: 'heavy', defaultPose: 'base' },
-  { id: 'robot-warlord', kind: 'robot', group: 'robots', label: 'KHARON-Ω · 监军', type: 'warlord', defaultPose: 'base' },
-  { id: 'robot-boss', kind: 'robot', group: 'robots', label: 'SIEGE WARDEN · 攻城督军', type: 'boss', defaultPose: 'base' },
-
-  // ---- first-person weapon --------------------------------------------------------
-  { id: 'rpg-launcher', kind: 'world', group: 'weapon', label: 'RPG-7 · 火箭筒（手持）', lift: true, build: (ctx) => buildRpgLauncher(ctx) },
-  { id: 'weapon-vxr7', kind: 'weapon', group: 'weapon', label: 'VXR-7 · 视模 VIEWMODEL', lift: true },
-];
+const CATALOG = MODEL_CATALOG;
 
 const VIEW_PRESETS = {
   // Models face -Z by convention (robot chassis / weapon muzzle), so the

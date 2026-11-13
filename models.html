@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SANDSTRIKE // MODEL VIEWER</title>
+  <style>
+    :root { color-scheme: dark; --ink: #e9dcc4; --dim: #9a8f7c; --faint: #6d6558; --line: #2c2620; --bg: #080a0d; --panel: #0e1114; --hot: #ff8a3c; --sand: #c9a97a; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 12px/1.45 "Cascadia Mono", "Consolas", "Segoe UI", monospace; overflow: hidden; }
+    #app { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 52px 1fr; grid-template-areas: "head head" "side main"; height: 100%; }
+    header { grid-area: head; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #14120f, #0b0d10); }
+    header h1 { margin: 0; font-size: 13px; letter-spacing: .18em; font-weight: 800; color: #f3e5ca; white-space: nowrap; }
+    header h1 b { color: var(--hot); }
+    #dev-badge { color: #1a120c; background: var(--hot); padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+    #quality { color: var(--dim); font-size: 10px; letter-spacing: .1em; }
+    #spacer { flex: 1; }
+    header a { color: var(--sand); text-decoration: none; font-size: 10px; letter-spacing: .1em; padding: 4px 8px; border: 1px solid var(--line); border-radius: 3px; }
+    header a:hover { border-color: var(--hot); color: var(--hot); }
+    #side { grid-area: side; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); min-height: 0; }
+    #search-wrap { padding: 10px 12px 8px; }
+    #search { width: 100%; background: #0a0c0f; border: 1px solid var(--line); color: var(--ink); padding: 7px 9px; font: inherit; outline: none; border-radius: 3px; }
+    #search:focus { border-color: var(--hot); }
+    #chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 12px 9px; border-bottom: 1px solid var(--line); }
+    .chip { border: 1px solid var(--line); background: transparent; color: var(--dim); padding: 3px 7px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 2px; letter-spacing: .06em; }
+    .chip:hover { color: var(--ink); border-color: #4a4034; }
+    .chip.on { color: #1a120c; background: var(--sand); border-color: var(--sand); font-weight: 700; }
+    #count { padding: 7px 12px 4px; color: var(--faint); font-size: 10px; letter-spacing: .1em; }
+    #list { flex: 1; overflow: auto; padding: 0 0 18px; min-height: 0; }
+    #list::-webkit-scrollbar { width: 8px; }
+    #list::-webkit-scrollbar-thumb { background: #241f19; }
+    .group-title { padding: 9px 12px 4px; color: var(--faint); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; }
+    .item { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--dim); padding: 5px 12px 5px 14px; cursor: pointer; font: inherit; }
+    .item:hover { background: #141821; color: var(--ink); }
+    .item.on { background: #1d1710; color: var(--ink); box-shadow: inset 2px 0 0 var(--hot); }
+    .item .id { color: var(--faint); font-size: 9px; min-width: 74px; }
+    .item .label { flex: 1; }
+    .item.on .id { color: var(--hot); }
+    #main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #06080a; }
+    #viewer { flex: 1; border: 0; width: 100%; height: 100%; background: #06080a; }
+    #info { border-top: 1px solid var(--line); background: var(--panel); padding: 8px 14px; display: grid; grid-template-columns: minmax(180px, 1.2fr) 2fr auto; gap: 16px; align-items: center; }
+    #info-name { color: #f0e2c7; font-weight: 700; letter-spacing: .08em; }
+    #info-name small { color: var(--faint); font-weight: 400; letter-spacing: .1em; margin-left: 8px; }
+    #info-meta { color: var(--dim); font-size: 10px; white-space: pre; }
+    #controls { display: flex; gap: 14px; align-items: center; }
+    .group { display: flex; gap: 4px; align-items: center; }
+    .group span { color: var(--faint); font-size: 9px; letter-spacing: .12em; margin-right: 2px; }
+    .view-btn, .pose-btn { border: 1px solid var(--line); background: #0b0e11; color: var(--dim); padding: 4px 7px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 2px; letter-spacing: .04em; }
+    .view-btn:hover, .pose-btn:hover { border-color: var(--hot); color: var(--ink); }
+    .view-btn.on, .pose-btn.on { border-color: var(--hot); color: var(--hot); }
+    .pose-btn:disabled { opacity: .35; cursor: default; }
+    #hint { grid-column: 1 / -1; color: var(--faint); font-size: 9px; letter-spacing: .08em; }
+    #dev-gate { position: fixed; inset: 0; display: none; place-items: center; background: radial-gradient(circle at 50% 35%, #171310, #06080a 70%); z-index: 10; }
+    #dev-gate.show { display: grid; }
+    #dev-gate .card { text-align: center; padding: 34px 42px; border: 1px solid #3a2f22; background: rgba(14, 12, 9, .9); border-radius: 6px; max-width: 460px; }
+    #dev-gate h2 { margin: 0 0 10px; color: var(--hot); letter-spacing: .22em; font-size: 15px; }
+    #dev-gate p { margin: 6px 0; color: var(--dim); line-height: 1.7; }
+    #dev-gate code { color: var(--sand); background: #0a0c0f; padding: 2px 6px; border-radius: 3px; }
+    #dev-gate a { display: inline-block; margin-top: 16px; color: #1a120c; background: var(--sand); padding: 8px 14px; border-radius: 3px; text-decoration: none; font-weight: 700; letter-spacing: .08em; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>SANDSTRIKE <b>//</b> MODEL VIEWER</h1>
+      <span id="dev-badge">DEV ONLY</span>
+      <span id="quality">QUALITY HIGH · 一模型一文件 · 4 视图自动取景</span>
+      <span id="spacer"></span>
+      <a id="game-link" href="./index.html?dev">← 返回游戏 (dev)</a>
+      <a id="stage-link" href="./stage.html?quality=high" target="_blank" rel="noopener">独立舞台 ↗</a>
+    </header>
+    <aside id="side">
+      <div id="search-wrap"><input id="search" type="search" placeholder="搜索模型 / id…" autocomplete="off" spellcheck="false" /></div>
+      <div id="chips"></div>
+      <div id="count">—</div>
+      <nav id="list" aria-label="model list"></nav>
+    </aside>
+    <main id="main">
+      <iframe id="viewer" title="model preview" src="about:blank"></iframe>
+    </main>
+    <div id="info">
+      <div id="info-name">—</div>
+      <div id="info-meta">—</div>
+      <div id="controls">
+        <div class="group" id="view-buttons"><span>VIEW</span></div>
+        <div class="group" id="pose-buttons"><span>POSE</span></div>
+      </div>
+      <div id="hint">↑/↓ 或 ←/→ 切换模型 · 1-5 切视角 · P 切姿态 · URL 加 ?m=&lt;id&gt; 直达</div>
+    </div>
+  </div>
+  <div id="dev-gate">
+    <div class="card">
+      <h2>DEV ONLY</h2>
+      <p>模型预览器仅在开发模式下可用。<br />Model viewer is available in dev mode only.</p>
+      <p>请用 <code>models.html?dev</code> 打开，或从游戏 <code>index.html?dev</code> 的入口进入。</p>
+      <a href="./models.html?dev">以 dev 模式打开 →</a>
+    </div>
+  </div>
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    if (!params.has('dev')) {
+      document.getElementById('dev-gate').classList.add('show');
+    } else {
+      import('./src/models-viewer.js');
+    }
+  </script>
+</body>
+</html>
