@@ -237,7 +237,7 @@ const CATALOG = [
 
   // ---- hero props -----------------------------------------------------------------
   { id: 'well', kind: 'world', group: 'hero', label: '水井 · WELL', build: (ctx) => buildWell(ctx) },
-  { id: 'truck', kind: 'world', group: 'hero', label: '卡车 · CARGO TRUCK', build: (ctx) => buildTruck(ctx) },
+  { id: 'truck', kind: 'world', group: 'hero', label: '卡车 · CARGO TRUCK', rotY: Math.PI / 2, build: (ctx) => buildTruck(ctx) },
   { id: 'windmill', kind: 'world', group: 'hero', label: '风车 · WINDMILL', build: (ctx) => buildWindmill(ctx) },
   { id: 'radar', kind: 'world', group: 'hero', label: '雷达塔 · RADAR MAST', build: (ctx) => buildRadar(ctx) },
   { id: 'cart', kind: 'world', group: 'hero', label: '平板车 · HAND CART', build: (ctx) => { ctx.stagePick = 'cart'; buildCarts(ctx); } },
@@ -450,6 +450,9 @@ function computeBox(root) {
   root.traverse((obj) => {
     if (obj.visible === false) return;
     if (obj.userData && obj.userData.zone) return; // invisible robot hitboxes
+    // Ground decals are flat quads painted on the floor; including them shifts the
+    // camera away from the silhouette (e.g. the truck's oil puddle sits 2 m beside it).
+    if (obj.name === 'batch:decals' || (obj.material && obj.material.name === 'decal')) return;
     if (obj.isInstancedMesh) {
       const geo = obj.geometry;
       if (!geo) return;
@@ -735,6 +738,9 @@ async function showModel(id, opts = {}) {
     group.add(weaponRoot);
     group.rotation.y = Math.PI;
   }
+  // Some props are authored along +X (truck) rather than the stage's -Z facing
+  // convention; pre-rotate them so FRONT / SIDE / BACK labels mean what they say.
+  if (entry.rotY) group.rotation.y += entry.rotY;
 
   modelRoot.add(group);
   group.updateMatrixWorld(true);
