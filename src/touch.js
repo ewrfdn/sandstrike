@@ -86,7 +86,9 @@ export class TouchControls {
     this._active = new Map(); // pointerId -> { kind: 'stick'|'look'|'fire', el }
     this._stick = { id: null, el: null, ox: 0, oy: 0, maxR: 1 };
     this._look = { id: null, el: null, lastX: 0, lastY: 0 };
-    this._fireId = null;
+    // Multi-pointer fire: any number of fingers may hold a fire button (primary
+    // FIRE or secondary FIRE); the virtual trigger stays down while >= 1 remains.
+    this._fireIds = new Set();
     this._moveX = 0;
     this._moveF = 0;
     this._sprintOn = false;
@@ -157,6 +159,7 @@ export class TouchControls {
       ['crouch', 'Crouch / 蹲伏', '⌄', 'CROUCH'],
       ['jump', 'Jump / 跳跃', '⌃', 'JUMP'],
       ['reload', 'Reload / 换弹', '⟲', 'RELOAD'],
+      ['switch', 'Switch weapon / 切换武器', '⇄', 'SWITCH'],
       ['ads', 'Aim down sight / 机瞄', '+', 'ADS'],
       ['fire', 'Fire / 射击', '◎', 'FIRE'],
     ];
@@ -177,6 +180,22 @@ export class TouchControls {
       buttons.append(button);
     }
     this.fireEl = this.buttons.fire;
+
+    // Secondary FIRE button (CODM-style mirrored layout). Appended AFTER the
+    // primary so `querySelector('[data-touch-action="fire"]')` keeps returning
+    // the primary (right-hand) button; both buttons drive the same virtual
+    // trigger and are tracked per pointer id in `_fireIds`.
+    const fire2 = el('button', 'touch-btn touch-btn--fire2', {
+      type: 'button',
+      'data-touch-action': 'fire',
+      'aria-label': 'Fire / 开火（副）',
+    });
+    fire2.append(
+      el('span', 'tb-glyph', null, '◎'),
+      el('span', 'tb-label', null, 'FIRE')
+    );
+    this.buttons.fire2 = fire2;
+    buttons.append(fire2);
 
     const pause = el('button', 'touch-pause', {
       type: 'button',
@@ -235,7 +254,7 @@ export class TouchControls {
     this._stick.el = null;
     this._look.id = null;
     this._look.el = null;
-    this._fireId = null;
+    this._fireIds.clear();
 
     if (this._moveX !== 0 || this._moveF !== 0) this._setMoveInput(0, 0);
     else this._moveX = 0;
@@ -309,6 +328,9 @@ export class TouchControls {
           break;
         case 'reload':
           this._invoke(this.weapon, 'startReload');
+          break;
+        case 'switch':
+          this._invoke(this.weapon, 'cycleWeapon', 1);
           break;
         case 'jump':
           this._invoke(this.player, 'queueJump');
@@ -405,12 +427,21 @@ export class TouchControls {
     this._invoke(this.player, 'look', dx * scale, dy * scale);
   }
 
-  _beginFire(event, el2) {
-    if (this._fireId !== null) return;
-    this._fireId = event.pointerId;
-    this._active.set(event.pointerId, { kind: 'fire', el: el2 });
-    this._capture(el2, event.pointerId);
-    this._setTrigger(true);
+  _beginFire(event, element) {
+    const pointerId = event.pointerId;
+    if (this._fireIds.has(pointerId)) return;
+    this._fireIds.add(pointerId);
+    this._active.set(pointerId, { kind: 'fire', el: element });
+    this._capture(element, pointerId);
+    // Only the first held fire pointer changes the trigger; extra fingers on
+    // the other fire button are tracked so releasing one keeps firing.
+    if (this._fireIds.size === 1) this._setTrigger(true);
+  }
+
+  /** Drop one fire pointer; release the virtual trigger only when none remain. */
+  _releaseFirePointer(pointerId) {
+    if (!this._fireIds.delete(pointerId)) return;
+    if (this._fireIds.size === 0) this._setTrigger(false);
   }
 
   _endPointer(pointerId) {
@@ -427,9 +458,8 @@ export class TouchControls {
     } else if (info.kind === 'look' && this._look.id === pointerId) {
       this._look.id = null;
       this._look.el = null;
-    } else if (info.kind === 'fire' && this._fireId === pointerId) {
-      this._fireId = null;
-      this._setTrigger(false);
+    } else if (info.kind === 'fire') {
+      this._releaseFirePointer(pointerId);
     }
     this._releaseCapture(info.el, pointerId);
   }

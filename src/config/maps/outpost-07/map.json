@@ -1,0 +1,27 @@
+{
+  "format": "sandstrike/map@1",
+  "id": "outpost-07",
+  "name": "OUTPOST 07",
+  "subtitle": "沙暴前哨 · 第七区",
+  "description": "金色黄昏下的沙漠前哨：中央广场与古井，A 长道 / B 隧道环线，A / B 双爆破点。",
+  "bounds": {
+    "minX": -33,
+    "maxX": 33,
+    "minZ": -33,
+    "maxZ": 33
+  },
+  "playerSpawn": {
+    "x": 0,
+    "y": 0,
+    "z": 26,
+    "yaw": 0
+  },
+  "parts": {
+    "terrain": "terrain.json",
+    "environment": "environment.json",
+    "architecture": "architecture.json",
+    "props": "props.json",
+    "dressing": "dressing.json",
+    "spawns": "spawns.json"
+  }
+}

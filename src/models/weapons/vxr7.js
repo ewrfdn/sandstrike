@@ -1,33 +1,27 @@
 /**
- * VXR-7 first-person viewmodel — pure model module.
+ * VXR-7 first-person weapon model — pure model module, split into:
  *
- * Everything that makes the gun look like the gun lives here: the primitive
- * helpers, the procedural steel/polymer/label/flash canvas textures, the
- * receiver / optic / magazine / reload-animation parts, the gloved hands and arms
- * and the muzzle-flash rig. This is the geometry from the legacy
- * `WeaponSystem._buildWeapon()` / `WeaponSystem._buildHands()` in src/weapons.js,
- * moved out verbatim.
+ *   createVxr7Materials()   procedural steel/polymer/label/flash textures + mats
+ *   buildVxr7Weapon()       bare weapon (receiver, optic, mag, flash rig) — no hands
+ *   buildVxr7Hands()        gloved hands + forearms — no weapon
+ *   buildVxr7Viewmodel()    compatibility layer: held rig = gunRoot > gun(.62) >
+ *                           { weaponRoot, handsRoot } (both bound by default)
  *
- * `WeaponSystem` keeps every behavioural concern (input, ADS/hip transform,
- * sway, firing, reload timing, recoil, audio, raycasts) and just parents the
- * returned `gunRoot` into its own view scene.
+ * The weapon and the hands only meet in the held frame (`gun`); the weapon can
+ * therefore exist on its own (stage preview / future world pickups), and the
+ * hands are bound to the same frame only while the weapon is equipped.
  *
- * Usage:
- *   import { buildVxr7Viewmodel } from './models/weapons/vxr7.js';
- *   Object.assign(this, buildVxr7Viewmodel({
- *     scene: this.viewScene,          // THREE.Scene the viewmodel root is added to
- *     muzzleLight: this.muzzleLight,  // THREE.PointLight, re-parented under the flash
- *   }));
+ * Everything behavioural (input, ADS/hip transform, sway, firing, reload
+ * timing, recoil, audio, raycasts) stays in `WeaponSystem` (src/weapons.js),
+ * which keeps consuming the flat legacy handle object returned by
+ * `buildVxr7Viewmodel({ scene, muzzleLight })`.
  *
- * Signature: buildVxr7Viewmodel({ scene, muzzleLight }) -> flat handle object.
- *
- * Every returned key matches the field name the legacy code assigned on the
- * WeaponSystem instance, so callers can `Object.assign()` it with no other
- * changes:
+ * Returned flat keys (unchanged, so `Object.assign(this, ...)` keeps working):
  *   gunRoot, gun, bolt, charging, magazine, spareMagazine, trigger, reticle,
  *   sightLocal, flashGroup, flashMats, muzzleLocal, muzzleLight, smokePuffs,
  *   matSteel, matSteelDark, matBlack, matPolymer, matRubber, matAccent,
- *   matBrass, matGlass, matGlove, matGlovePalm, matGloveDark, matSleeve.
+ *   matBrass, matGlass, matGlove, matGlovePalm, matGloveDark, matSleeve
+ * plus the split handles { weaponRoot, handsRoot }.
  *
  * The viewmodel has no collision/raycast data and is never added to the world
  * scene: it is rendered by WeaponSystem.render() with the view camera only.
@@ -35,6 +29,19 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { rand } from '../../utils.js';
+import { buildGlovedHands } from './hands.js';
+
+/** Model-viewer / weapon-registry metadata (one entry in the unified catalog). */
+export const meta = {
+  id: 'weapon-vxr7',
+  weaponId: 'vxr7',
+  kind: 'weapon',
+  group: 'weapon',
+  label: 'VXR-7 · 5.56 突击步枪',
+  poses: ['bare', 'held'],
+  defaultPose: 'bare',
+  lift: true,
+};
 
 // ---------------------------------------------------------------------------
 // Primitive helpers
@@ -59,24 +66,16 @@ function add(parent, mesh, x, y, z, rx = 0, ry = 0, rz = 0) {
   parent.add(mesh);
   return mesh;
 }
-function cylinderBetween(a, b, radius, mat, seg = 12) {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.92, len, seg), mat);
-  mesh.position.copy(a).addScaledVector(dir, 0.5);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-  return mesh;
-}
 
 // ---------------------------------------------------------------------------
-// Procedural textures (canvas based, generated once per WeaponSystem build)
+// Procedural textures (canvas based, generated once per material set)
 // ---------------------------------------------------------------------------
 
 function makeSteelTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 512;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#35393d';
+  ctx.fillStyle = '#59626a';
   ctx.fillRect(0, 0, 512, 512);
   const img = ctx.getImageData(0, 0, 512, 512);
   for (let i = 0; i < img.data.length; i += 4) {
@@ -96,14 +95,14 @@ function makeSteelTexture() {
     ctx.stroke();
   }
   // edge wear and oil smudges
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 6; i++) {
     const g = ctx.createRadialGradient(rand(0, 512), rand(0, 512), 0, rand(0, 512), rand(0, 512), rand(20, 80));
-    g.addColorStop(0, 'rgba(14,16,17,.20)');
+    g.addColorStop(0, 'rgba(14,16,17,.07)');
     g.addColorStop(1, 'rgba(14,16,17,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 512, 512);
   }
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 90; i++) {
     ctx.fillStyle = `rgba(225,230,232,${rand(0.03, 0.15)})`;
     ctx.fillRect(rand(0, 512), rand(0, 512), rand(1, 5), rand(0.6, 2));
   }
@@ -114,7 +113,7 @@ function makePolymerTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 256;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#202326';
+  ctx.fillStyle = '#3d4348';
   ctx.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 5200; i++) {
     const l = Math.random() > 0.5 ? 255 : 0;
@@ -184,210 +183,47 @@ function makeFlashTexture() {
 }
 
 // ---------------------------------------------------------------------------
-// Hands / arms
+// Materials
 // ---------------------------------------------------------------------------
 
 /**
- * Both gloved hands and forearm sleeves, parented to the gun group.
- * Geometry and joint positions are unchanged from the legacy builder.
+ * All materials (and their procedural canvas textures) needed by the weapon
+ * and the gloved hands.  Build once and share between the weapon and hand
+ * builders; the returned set owns its textures.
  */
-function buildHands(gun, mats) {
-  const { glove, dark, sleeve, palmMat, accent } = mats;
-
-  /**
-   * Forearm / sleeve run from a wrist point outward.  Points are in gun space
-   * (both hand groups are fixed gun-space children).  Tapered cylinder
-   * segments are left open-ended so no flat cap faces the lens (a wrist tube
-   * pointing at the camera reads as a dark peg, which is why the old sleeve
-   * tubes were removed instead of replaced); the far end gets a rounded cap
-   * and sits outside the near frame.
-   */
-  const sleeveRun = (points, rWrist, rElbow) => {
-    const up = new THREE.Vector3(0, 1, 0);
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i];
-      const b = points[i + 1];
-      const dir = new THREE.Vector3().subVectors(b, a);
-      const len = dir.length();
-      if (len < 1e-5) continue;
-      const t0 = i / (points.length - 1);
-      const t1 = (i + 1) / (points.length - 1);
-      const mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(
-          rWrist + (rElbow - rWrist) * t1,
-          rWrist + (rElbow - rWrist) * t0,
-          len, 12, 1, true,
-        ),
-        sleeve,
-      );
-      mesh.position.copy(a).addScaledVector(dir, 0.5);
-      mesh.quaternion.setFromUnitVectors(up, dir.normalize());
-      gun.add(mesh);
-    }
-    // cuff ring hides the rounded glove wrist cap where the sleeve starts
-    const cuffDir = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
-    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(rWrist * 1.12, rWrist * 1.18, 0.034, 12), sleeve);
-    cuff.position.copy(points[0]).addScaledVector(cuffDir, 0.004);
-    cuff.quaternion.setFromUnitVectors(up, cuffDir);
-    gun.add(cuff);
-    // rounded end cap: the open tube end never faces the player camera (it is
-    // outside the near frame), but the isolated model stage can see it
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(rElbow * 0.98, 10, 8), sleeve);
-    cap.position.copy(points[points.length - 1]);
-    gun.add(cap);
-  };
-
-
-  /** Chain of capsules through a list of joint points (hand-local space). */
-  const chain = (parent, points, radius, mat, jointRadius = radius * 1.06) => {
-    for (let i = 0; i < points.length - 1; i++) {
-      parent.add(cylinderBetween(points[i], points[i + 1], radius, mat));
-      // knuckle/joint blob keeps the silhouette soft instead of piping-like
-      const blob = new THREE.Mesh(new THREE.SphereGeometry(jointRadius, 10, 8), mat);
-      blob.position.copy(points[i]);
-      parent.add(blob);
-    }
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.92, 10, 8), mat);
-    tip.position.copy(points[points.length - 1]);
-    parent.add(tip);
-  };
-
-  /* ---------------------------------------------------------------------
-   * RIGHT HAND — firing hand on the pistol grip.
-   * Palm on the right flank of the grip, fingers wrap the front strap and
-   * curl back toward the left, thumb rides the left side.
-   * ------------------------------------------------------------------- */
-  const right = new THREE.Group();
-  right.position.set(0.030, -0.098, 0.138);
-  right.rotation.set(0.12, 0.34, 0.06);
-  gun.add(right);
-
-  // back of the hand: smaller, angled away from the lens, with a visible
-  // knuckle ridge and glove strap so it reads as a hand rather than a blob
-  add(right, rounded(0.056, 0.066, 0.064, palmMat, 0.016, 3), 0, 0, 0);
-  add(right, rounded(0.050, 0.018, 0.050, dark, 0.008, 2), 0.000, 0.032, -0.004, 0.06);
-  // four knuckles across the back of the hand
-  for (let i = 0; i < 4; i++) {
-    add(right, new THREE.Mesh(new THREE.SphereGeometry(0.0092, 10, 8), glove),
-      0.020 - i * 0.0135, 0.030, -0.026, 0, 0, 0);
-  }
-  // glove strap + buckle
-  add(right, box(0.052, 0.010, 0.024, dark), 0.002, -0.010, 0.020, 0.1);
-  add(right, box(0.012, 0.014, 0.012, accent), 0.016, -0.008, 0.020, 0.1);
-  // four fingers wrapping the front strap of the grip
-  for (let i = 0; i < 4; i++) {
-    const y = 0.026 - i * 0.0215;
-    chain(right, [
-      new THREE.Vector3(-0.010, y, -0.016),
-      new THREE.Vector3(-0.026, y - 0.002, -0.034),
-      new THREE.Vector3(-0.042, y - 0.004, -0.028),
-      new THREE.Vector3(-0.046, y - 0.006, -0.010),
-    ], 0.0092 - i * 0.0004, glove);
-    add(right, rounded(0.013, 0.014, 0.014, dark, 0.004, 1),
-      -0.030, y + 0.008, -0.030, 0.1, 0, 0.1);
-  }
-  // thumb over the top of the grip
-  chain(right, [
-    new THREE.Vector3(0.028, 0.028, 0.004),
-    new THREE.Vector3(0.030, 0.046, -0.022),
-    new THREE.Vector3(0.014, 0.050, -0.040),
-  ], 0.0112, glove);
-  // right forearm: leaves the wrist down/back and out of the bottom of frame
-  sleeveRun([
-    new THREE.Vector3(0.038, -0.132, 0.152),
-    new THREE.Vector3(0.075, -0.225, 0.300),
-    new THREE.Vector3(0.135, -0.345, 0.500),
-    new THREE.Vector3(0.185, -0.460, 0.720),
-  ], 0.042, 0.055);
-
-  /* ---------------------------------------------------------------------
-   * LEFT HAND — "C-clamp" support grip on the handguard. The palm presses
-   * against the left flank of the handguard and the fingers curl OVER the top
-   * so they are actually visible from the player camera (a hand tucked under
-   * the handguard just disappears inside the mesh and looks like it floats).
-   * Joints are given in gun space, which keeps the grip alignment honest.
-   * ------------------------------------------------------------------- */
-  const left = new THREE.Group();
-  // sits flush against the left flank of the handguard (no air gap, which is
-  // what made the support hand look like it was floating under the gun)
-  left.position.set(-0.046, 0.004, -0.330);
-  left.rotation.set(0.02, 0.04, 0.12);
-  gun.add(left);
-
-  // palm / heel of the hand against the left flank
-  add(left, rounded(0.040, 0.062, 0.078, glove, 0.014, 3), 0, 0, 0);
-  add(left, rounded(0.030, 0.020, 0.056, dark, 0.008, 2), -0.008, -0.022, 0.002, 0.06);
-  // four fingers curling up and over the top of the handguard.  The curl sits
-  // a few mm higher than before so the finger undersides rest on the handguard
-  // rail plate instead of interpenetrating it (visible from the top view).
-  for (let i = 0; i < 4; i++) {
-    const z = -0.052 + i * 0.021;
-    chain(left, [
-      new THREE.Vector3(0.006, 0.026, z),
-      new THREE.Vector3(0.022, 0.056, z - 0.002),
-      new THREE.Vector3(0.048, 0.066, z - 0.004),
-      new THREE.Vector3(0.070, 0.056, z - 0.006),
-    ], 0.0092 - i * 0.0004, glove);
-    // knuckle pad on the back of the finger, facing the camera
-    add(left, rounded(0.013, 0.012, 0.014, dark, 0.004, 1),
-      0.028, 0.068, z - 0.002, 0.1, 0, -0.2);
-  }
-  // thumb along the left flank, pointing toward the muzzle
-  chain(left, [
-    new THREE.Vector3(-0.012, 0.010, -0.026),
-    new THREE.Vector3(-0.010, 0.016, -0.054),
-    new THREE.Vector3(-0.002, 0.018, -0.078),
-  ], 0.0106, glove);
-  // left forearm: leaves the support wrist down/left/back out of the frame
-  sleeveRun([
-    new THREE.Vector3(-0.066, -0.026, -0.300),
-    new THREE.Vector3(-0.140, -0.160, -0.175),
-    new THREE.Vector3(-0.230, -0.330, 0.020),
-    new THREE.Vector3(-0.300, -0.520, 0.230),
-  ], 0.042, 0.055);
-}
-
-// ---------------------------------------------------------------------------
-// Viewmodel builder
-// ---------------------------------------------------------------------------
-
-export function buildVxr7Viewmodel({ scene, muzzleLight }) {
-  if (!scene) throw new Error('[vxr7] buildVxr7Viewmodel requires a scene');
-  if (!muzzleLight) throw new Error('[vxr7] buildVxr7Viewmodel requires a muzzleLight');
-
-  // ---- materials ----
+export function createVxr7Materials() {
   const steelCanvas = makeSteelTexture();
   const steelMap = new THREE.CanvasTexture(steelCanvas);
   steelMap.colorSpace = THREE.SRGBColorSpace;
   steelMap.wrapS = steelMap.wrapT = THREE.RepeatWrapping;
-  steelMap.repeat.set(2, 1);
+  steelMap.repeat.set(6, 3);
   steelMap.anisotropy = 8;
 
   const polymerCanvas = makePolymerTexture();
   const polymerMap = new THREE.CanvasTexture(polymerCanvas);
   polymerMap.colorSpace = THREE.SRGBColorSpace;
   polymerMap.wrapS = polymerMap.wrapT = THREE.RepeatWrapping;
-  polymerMap.repeat.set(2, 2);
+  polymerMap.repeat.set(4, 4);
   polymerMap.anisotropy = 8;
 
   const matSteel = new THREE.MeshStandardMaterial({
-    color: 0xc2c8cc, map: steelMap, metalness: 0.82, roughness: 0.32, envMapIntensity: 1.15,
+    color: 0x9aa3aa, map: steelMap, metalness: 0.34, roughness: 0.52, envMapIntensity: 0.5,
   });
   const matSteelDark = new THREE.MeshStandardMaterial({
-    color: 0x8c9297, map: steelMap, metalness: 0.85, roughness: 0.38, envMapIntensity: 1.05,
+    color: 0x7e878e, map: steelMap, metalness: 0.38, roughness: 0.55, envMapIntensity: 0.45,
   });
   const matBlack = new THREE.MeshStandardMaterial({
-    color: 0x474d50, map: polymerMap, metalness: 0.70, roughness: 0.47, envMapIntensity: 0.95,
+    color: 0x40464a, map: polymerMap, metalness: 0.28, roughness: 0.62, envMapIntensity: 0.4,
   });
   const matPolymer = new THREE.MeshStandardMaterial({
-    color: 0x7a7e80, map: polymerMap, metalness: 0.18, roughness: 0.7, envMapIntensity: 0.7,
+    color: 0x5b6165, map: polymerMap, metalness: 0.1, roughness: 0.78, envMapIntensity: 0.35,
   });
-  const matRubber = new THREE.MeshStandardMaterial({ color: 0x151718, metalness: 0.05, roughness: 0.95 });
-  const matAccent = new THREE.MeshStandardMaterial({ color: 0xd46b26, metalness: 0.55, roughness: 0.4 });
+  const matRubber = new THREE.MeshStandardMaterial({ color: 0x1d1f21, metalness: 0.06, roughness: 0.94 });
+  const matAccent = new THREE.MeshStandardMaterial({ color: 0xd2741f, metalness: 0.5, roughness: 0.42 });
   const matBrass = new THREE.MeshStandardMaterial({ color: 0xd8a14c, metalness: 1.0, roughness: 0.25 });
   const matGlass = new THREE.MeshPhysicalMaterial({
-    color: 0x7fb8c9, metalness: 0, roughness: 0.08, transparent: true, opacity: 0.24,
-    transmission: 0.2, clearcoat: 1,
+    color: 0xcfe8f2, metalness: 0, roughness: 0.16, transparent: true, opacity: 0.07,
+    depthWrite: false, side: THREE.DoubleSide, clearcoat: 0.35, envMapIntensity: 0.9,
   });
   const matGlove = new THREE.MeshStandardMaterial({
     color: 0x46392b, roughness: 0.9, metalness: 0.03,
@@ -402,219 +238,445 @@ export function buildVxr7Viewmodel({ scene, muzzleLight }) {
     color: 0x2a2b23, roughness: 0.96, metalness: 0,
   });
 
+  matSteel.name = 'steel';
+  matSteelDark.name = 'steelDark';
+  matBlack.name = 'black';
+  matPolymer.name = 'polymer';
+  matRubber.name = 'rubber';
+  matAccent.name = 'accent';
+  matBrass.name = 'brass';
+  matGlass.name = 'glass';
+
+  return {
+    matSteel,
+    matSteelDark,
+    matBlack,
+    matPolymer,
+    matRubber,
+    matAccent,
+    matBrass,
+    matGlass,
+    matGlove,
+    matGlovePalm,
+    matGloveDark,
+    matSleeve,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gloved hands (mount + sleeve runs of the VXR-7 held pose)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mounts and sleeve runs in VXR-7 held-frame coordinates.  These values are the
+ * legacy `buildHands()` values and are part of the viewmodel's visual identity:
+ * do not tweak them.
+ */
+const VXR7_HANDS = {
+  right: {
+    position: [0.030, -0.098, 0.138],
+    rotation: [0.12, 0.34, 0.06],
+    sleeve: {
+      points: [
+        [0.038, -0.132, 0.152],
+        [0.075, -0.225, 0.300],
+        [0.135, -0.345, 0.500],
+        [0.185, -0.460, 0.720],
+      ],
+      rWrist: 0.042,
+      rElbow: 0.055,
+    },
+  },
+  left: {
+    position: [-0.046, 0.004, -0.330],
+    rotation: [0.02, 0.04, 0.12],
+    sleeve: {
+      points: [
+        [-0.066, -0.026, -0.300],
+        [-0.140, -0.160, -0.175],
+        [-0.230, -0.330, 0.020],
+        [-0.300, -0.520, 0.230],
+      ],
+      rWrist: 0.042,
+      rElbow: 0.055,
+    },
+  },
+};
+
+/**
+ * Both gloved hands + forearm sleeves of the VXR-7 held pose, no weapon.
+ * Returned root is meant to be parented under the held frame (`gun`).
+ *
+ * @param {{ mats?: object }} [opts]
+ * @returns {{ root: THREE.Group, rightHand: THREE.Group, leftHand: THREE.Group }}
+ */
+export function buildVxr7Hands({ mats = createVxr7Materials() } = {}) {
+  return buildGlovedHands({
+    mats: {
+      glove: mats.matGlove,
+      glovePalm: mats.matGlovePalm,
+      gloveDark: mats.matGloveDark,
+      sleeve: mats.matSleeve,
+      accent: mats.matAccent,
+    },
+    right: VXR7_HANDS.right,
+    left: VXR7_HANDS.left,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bare weapon (no hands)
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete VXR-7 weapon model without hands: receiver, rail, handguard,
+ * barrel, optic, charging handle, magazines, pistol grip/trigger, side plates
+ * and the muzzle-flash rig.  Root children use held-frame coordinates (not
+ * multiplied by the 0.62 held scale) so callers can put `root` straight into a
+ * held frame or into a world pickup wrapper.
+ *
+ * @param {{ mats?: object, muzzleLight?: THREE.PointLight|null }} [opts]
+ * @returns {{ root: THREE.Group, mats: object, bolt: THREE.Mesh,
+ *            charging: THREE.Group, magazine: THREE.Group,
+ *            spareMagazine: THREE.Group, trigger: THREE.Mesh,
+ *            reticle: THREE.Mesh, sightLocal: THREE.Vector3,
+ *            flashGroup: THREE.Group, flashMats: THREE.Material[],
+ *            muzzleLocal: THREE.Vector3, muzzleLight: THREE.PointLight|null }}
+ */
+export function buildVxr7Weapon({ mats = createVxr7Materials(), muzzleLight = null } = {}) {
+  const {
+    matSteel, matSteelDark, matBlack, matPolymer, matRubber, matAccent, matBrass, matGlass,
+  } = mats;
+
   const root = new THREE.Group();
-  scene.add(root);
+  root.name = 'weaponRoot';
 
-  const gun = new THREE.Group();
-  gun.scale.setScalar(0.62);
-  root.add(gun);
+  // ---- local primitive helpers (weapon space: muzzle -Z, up +Y, right +X) ----
+  const RB = (w, h, d, mat, r = 0.008, seg = 2) => new THREE.Mesh(
+    new RoundedBoxGeometry(w, h, d, seg, Math.max(0.0015, Math.min(r, Math.min(w, h, d) * 0.45))), mat
+  );
+  /** Cylinder along Z. `rFront` is the radius toward the muzzle (-Z). */
+  const CZ = (rFront, rRear, len, mat, seg = 16) => {
+    const geo = new THREE.CylinderGeometry(rRear, rFront, len, seg, 1, false);
+    geo.rotateX(Math.PI / 2);
+    return new THREE.Mesh(geo, mat);
+  };
+  /** Extruded side silhouette: `pts` are [z, y] weapon-space points, extruded across X. */
+  const PROF = (pts, width, mat, bevel = 0.006) => {
+    const bevelSize = Math.max(0.0015, Math.min(bevel, width * 0.3));
+    const shape = new THREE.Shape();
+    pts.forEach(([z, y], i) => {
+      if (i === 0) shape.moveTo(-z, y);
+      else shape.lineTo(-z, y);
+    });
+    shape.closePath();
+    const depth = Math.max(0.004, width - 2 * bevelSize);
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth, bevelEnabled: true, bevelThickness: bevelSize, bevelSize, bevelSegments: 1, curveSegments: 1,
+    });
+    geo.translate(0, 0, -depth / 2);
+    geo.rotateY(Math.PI / 2);
+    return new THREE.Mesh(geo, mat);
+  };
+  /** Faceted octagonal section swept along Z (handguard / end caps). */
+  const OCT = (r, len, sx, sy, mat) => {
+    const geo = new THREE.CylinderGeometry(r, r, len, 8, 1, false);
+    geo.scale(sx, sy, 1);
+    geo.rotateY(Math.PI / 8);
+    geo.rotateX(Math.PI / 2);
+    const flat = geo.toNonIndexed();
+    flat.computeVertexNormals();
+    geo.dispose();
+    return new THREE.Mesh(flat, mat);
+  };
+  /** Extruded side profile with a through-hole (solid trigger-guard loop). */
+  const PROF_HOLE = (pts, holePts, width, mat, bevel = 0.004) => {
+    const bevelSize = Math.max(0.0015, Math.min(bevel, width * 0.3));
+    const toShape = (list) => {
+      const shape = new THREE.Shape();
+      list.forEach(([z, y], i) => (i === 0 ? shape.moveTo(-z, y) : shape.lineTo(-z, y)));
+      shape.closePath();
+      return shape;
+    };
+    const shape = toShape(pts);
+    shape.holes.push(toShape(holePts));
+    const depth = Math.max(0.004, width - 2 * bevelSize);
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth, bevelEnabled: true, bevelThickness: bevelSize, bevelSize, bevelSegments: 1, curveSegments: 1,
+    });
+    geo.translate(0, 0, -depth / 2);
+    geo.rotateY(Math.PI / 2);
+    return new THREE.Mesh(geo, mat);
+  };
+  const RING = (R, r, mat, radial = 8, tubular = 18) => new THREE.Mesh(new THREE.TorusGeometry(R, r, radial, tubular), mat);
+  const TUBE = (pts, r, mat, tubular = 18, radial = 6) => new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), tubular, r, radial, false), mat
+  );
+  const HEXBOLT = (r = 0.0032, h = 0.0024, mat = matSteelDark) => new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 6, 1, false), mat);
 
-  // ---- receiver / body ----
-  add(gun, rounded(0.105, 0.11, 0.30, matSteel, 0.012, 2), 0, 0.005, -0.01);
-  add(gun, rounded(0.096, 0.064, 0.31, matSteelDark, 0.014, 2), 0, 0.081, -0.015);
-  add(gun, rounded(0.084, 0.072, 0.22, matBlack, 0.01, 2), 0, -0.048, 0.035);
-  // ejection port
-  add(gun, box(0.012, 0.034, 0.085, matBlack), 0.051, 0.055, -0.01);
-  const bolt = add(gun, box(0.010, 0.026, 0.06, matSteel), 0.055, 0.062, -0.005);
-  add(gun, rounded(0.024, 0.022, 0.038, matSteelDark, 0.004, 2), 0.058, 0.084, 0.035);
-  // safety / selector
-  add(gun, cyl(0.012, 0.012, 0.008, matAccent, 16), 0.058, 0.018, 0.058, 0, 0, Math.PI / 2);
-  // warning band near receiver
-  add(gun, box(0.104, 0.008, 0.102, matAccent), 0, 0.0, -0.12);
-
-  // ---- full-length top rail ----
-  const railCount = 15;
-  const railGeo = new RoundedBoxGeometry(0.046, 0.018, 0.031, 1, 0.003);
-  for (let i = 0; i < railCount; i++) {
-    const m = new THREE.Mesh(railGeo, matSteelDark);
-    add(gun, m, 0, 0.132, 0.075 - i * 0.039);
+  // ========================== UPPER RECEIVER =================================
+  add(root, PROF([
+    [0.105, 0.03], [0.105, 0.1], [0.02, 0.105], [-0.1, 0.105], [-0.145, 0.098],
+    [-0.145, 0.046], [-0.108, 0.032], [-0.02, 0.03], [0.05, 0.03],
+  ], 0.096, matSteel, 0.008), 0, 0, 0);
+  add(root, RB(0.05, 0.01, 0.26, matSteelDark, 0.003, 2), 0, 0.108, -0.02);
+  // continuous picatinny rail: solid base + ribs, flush on receiver and handguard bridge
+  add(root, RB(0.05, 0.014, 0.6, matSteelDark, 0.004, 2), 0, 0.118, -0.2);
+  for (let i = 0; i < 18; i++) {
+    add(root, RB(0.046, 0.012, 0.024, matSteel, 0.002, 1), 0, 0.1315, 0.09 - i * 0.034);
   }
-  add(gun, box(0.052, 0.01, 0.56, matBlack), 0, 0.12, -0.19);
-
-  // ---- handguard ----
-  const hg = add(gun, rounded(0.084, 0.082, 0.30, matPolymer, 0.016, 2), 0, 0.012, -0.34);
-  hg.rotation.z = 0.0;
-  // rail segments under handguard
-  add(gun, box(0.05, 0.01, 0.28, matBlack), 0, 0.059, -0.35);
-  // vent slots (recessed dark) both sides + bottom
-  for (let i = 0; i < 5; i++) {
-    add(gun, box(0.004, 0.016, 0.032, matBlack), 0.043, 0.01, -0.25 - i * 0.05, 0, 0, 0.0);
-    add(gun, box(0.004, 0.016, 0.032, matBlack), -0.043, 0.01, -0.25 - i * 0.05, 0, 0, 0.0);
-    add(gun, box(0.022, 0.004, 0.034, matBlack), 0, -0.032, -0.25 - i * 0.05);
+  // ejection port (right): dark opening, frame, open dust cover, deflector
+  add(root, RB(0.006, 0.036, 0.08, matBlack, 0.001, 1), 0.0475, 0.068, -0.045);
+  add(root, RB(0.008, 0.007, 0.088, matSteelDark, 0.001, 1), 0.0485, 0.088, -0.045);
+  add(root, RB(0.008, 0.007, 0.088, matSteelDark, 0.001, 1), 0.0485, 0.047, -0.045);
+  add(root, CZ(0.0035, 0.0035, 0.082, matSteelDark, 8), 0.049, 0.043, -0.045);
+  add(root, RB(0.004, 0.034, 0.078, matSteelDark, 0.0015, 1), 0.057, 0.028, -0.045, 0, 0, -0.95);
+  add(root, RB(0.015, 0.018, 0.03, matSteel, 0.004, 2), 0.048, 0.083, 0.004, 0, 0, -0.3);
+  // forward assist, bolt catch, mag release
+  add(root, CZ(0.0085, 0.0085, 0.024, matSteelDark, 12), 0.046, 0.086, 0.086);
+  add(root, RING(0.009, 0.0022, matSteel, 6, 12), 0.046, 0.086, 0.071);
+  add(root, RB(0.01, 0.016, 0.034, matSteelDark, 0.002, 1), -0.047, -0.012, 0.03);
+  add(root, RB(0.01, 0.014, 0.016, matSteelDark, 0.002, 1), 0.047, -0.03, 0.05);
+  // buffer tube + compact stock (real silhouette; kept clear of the view camera)
+  add(root, CZ(0.021, 0.023, 0.1, matSteelDark, 16), 0, 0.05, 0.14);
+  add(root, RB(0.05, 0.062, 0.014, matSteelDark, 0.004, 2), 0, 0.05, 0.107); // receiver end plate
+  add(root, RING(0.022, 0.004, matSteelDark, 6, 18), 0, 0.05, 0.098);
+  add(root, PROF([
+    [0.15, 0.07], [0.212, 0.066], [0.222, 0.02], [0.222, -0.012], [0.19, -0.016], [0.158, 0.002], [0.146, 0.04],
+  ], 0.046, matPolymer, 0.004), 0, 0, 0);
+  add(root, RB(0.04, 0.007, 0.06, matBlack, 0.002, 1), 0, 0.0665, 0.185);
+  add(root, RB(0.046, 0.05, 0.01, matRubber, 0.004, 2), 0, 0.03, 0.226);
+  add(root, RING(0.009, 0.0022, matSteelDark, 6, 12), 0, 0.004, 0.2);
+  // flip-up rear sight on the rail
+  add(root, RB(0.03, 0.01, 0.024, matSteelDark, 0.002, 1), 0, 0.139, 0.062);
+  add(root, RB(0.006, 0.026, 0.008, matSteelDark, 0.001, 1), -0.011, 0.155, 0.062);
+  add(root, RB(0.006, 0.026, 0.008, matSteelDark, 0.001, 1), 0.011, 0.155, 0.062);
+  add(root, RING(0.0065, 0.0018, matSteel, 6, 14), 0, 0.158, 0.062);
+  // receiver side detail: panel lines, bolts + seam
+  for (const sx of [-1, 1]) {
+    add(root, RB(0.0022, 0.006, 0.2, matBlack, 0.001, 1), sx * 0.0492, 0.056, -0.03);
+    add(root, RB(0.0022, 0.004, 0.16, matBlack, 0.001, 1), sx * 0.0492, 0.036, -0.035);
+    add(root, RB(0.0022, 0.04, 0.006, matBlack, 0.001, 1), sx * 0.0492, 0.062, 0.075);
   }
-  // side rail (M-LOK / picatinny accent)
-  for (let i = 0; i < 4; i++) {
-    add(gun, box(0.008, 0.012, 0.032, matAccent), 0.045, -0.01, -0.27 - i * 0.06);
-  }
-  // hand stop
-  add(gun, rounded(0.022, 0.052, 0.03, matBlack, 0.006, 2), 0, -0.052, -0.43, -0.2);
-  // gas block
-  add(gun, rounded(0.048, 0.052, 0.06, matSteelDark, 0.006, 2), 0, 0.042, -0.53);
-  // barrel
-  const barrel = cyl(0.015, 0.018, 0.30, matBlack, 18);
-  add(gun, barrel, 0, 0.03, -0.67, Math.PI / 2);
-  // muzzle brake
-  const brake = rounded(0.036, 0.036, 0.085, matSteel, 0.008, 2);
-  add(gun, brake, 0, 0.03, -0.845);
   for (let i = 0; i < 3; i++) {
-    add(gun, box(0.038, 0.007, 0.012, matBlack), 0, 0.03 + 0.009, -0.83 - i * 0.018);
+    add(root, HEXBOLT(0.0032, 0.0024), 0.0492, 0.036, -0.085 + i * 0.028, 0, 0, Math.PI / 2);
   }
-  add(gun, cyl(0.011, 0.013, 0.012, matBlack, 16), 0, 0.03, -0.89, Math.PI / 2);
-  // front sight folded
-  add(gun, box(0.02, 0.036, 0.02, matSteelDark), 0, 0.085, -0.53);
-  add(gun, box(0.008, 0.018, 0.006, matSteel), 0, 0.105, -0.53);
+  add(root, RB(0.094, 0.004, 0.24, matSteelDark, 0.0015, 1), 0, 0.032, -0.02);
 
-  // ---- optic (open-hood holographic sight, deliberately skeletal) ----
-  const optic = new THREE.Group();
-  // sits directly on the top rail (rail top = 0.141) so it never looks like it
-  // is floating above the receiver
-  optic.position.set(0, 0.142, -0.005);
-  gun.add(optic);
-  // clamp block straddling the picatinny rail + cross bolt
-  add(optic, rounded(0.064, 0.030, 0.086, matSteelDark, 0.006, 2), 0, -0.004, 0.002);
-  add(optic, cyl(0.009, 0.009, 0.072, matSteel, 10), 0, -0.012, 0.0, 0, 0, Math.PI / 2);
-  add(optic, box(0.016, 0.020, 0.024, matBlack), 0.040, -0.008, 0.018);
-  // mount + body
-  add(optic, rounded(0.060, 0.014, 0.092, matSteelDark, 0.004, 2), 0, 0.014, 0);
-  add(optic, rounded(0.056, 0.020, 0.088, matBlack, 0.005, 2), 0, 0.030, 0.004);
-  add(optic, rounded(0.050, 0.012, 0.072, matSteelDark, 0.004, 2), 0, 0.045, 0.004);
-  // four slim uprights + open top hood, so the sand world stays visible through it
-  for (const z of [-0.035, 0.035]) {
-    add(optic, rounded(0.006, 0.052, 0.007, matSteelDark, 0.002, 1), -0.027, 0.072, z);
-    add(optic, rounded(0.006, 0.052, 0.007, matSteelDark, 0.002, 1), 0.027, 0.072, z);
+  // ============================== HANDGUARD ==================================
+  add(root, OCT(0.045, 0.36, 0.94, 1.04, matPolymer), 0, 0.008, -0.34);
+  // narrow raised bridge under the rail (monolithic upper look, no air gap)
+  add(root, PROF([[-0.14, 0.113], [-0.525, 0.113], [-0.525, 0.046], [-0.14, 0.046]], 0.032, matSteelDark, 0.005), 0, 0, 0);
+  // octagon edge ridges
+  for (const sx of [-1, 1]) {
+    add(root, RB(0.007, 0.007, 0.355, matPolymer, 0.0025, 1), sx * 0.0415, 0.028, -0.34);
+    add(root, RB(0.007, 0.007, 0.355, matPolymer, 0.0025, 1), sx * 0.0415, -0.02, -0.34);
   }
-  add(optic, rounded(0.064, 0.009, 0.086, matSteelDark, 0.003, 2), 0, 0.099, 0.0);
-  add(optic, box(0.052, 0.003, 0.07, matSteel), 0, 0.105, 0.0);
-  // glass + tiny bright holographic reticle
+  add(root, RB(0.028, 0.006, 0.355, matPolymer, 0.0025, 1), 0, -0.0345, -0.34);
+  // M-LOK slots on both flats + bottom vents
+  for (let i = 0; i < 5; i++) {
+    const z = -0.2 - i * 0.058;
+    add(root, RB(0.005, 0.016, 0.04, matBlack, 0.001, 1), 0.0424, 0.006, z);
+    add(root, RB(0.005, 0.016, 0.04, matBlack, 0.001, 1), -0.0424, 0.006, z);
+    add(root, RB(0.0022, 0.03, 0.004, matBlack, 0.001, 1), 0.0394, 0.004, z - 0.029);
+    add(root, RB(0.0022, 0.03, 0.004, matBlack, 0.001, 1), -0.0394, 0.004, z - 0.029);
+  }
+  for (let i = 0; i < 3; i++) {
+    add(root, RB(0.022, 0.005, 0.042, matBlack, 0.001, 1), 0, -0.0335, -0.22 - i * 0.07);
+  }
+  // accessory rails at 3 / 9 o'clock
+  for (const sx of [-1, 1]) {
+    add(root, RB(0.006, 0.018, 0.2, matSteelDark, 0.0015, 1), sx * 0.0435, 0.0, -0.31);
+    for (let i = 0; i < 4; i++) {
+      add(root, RB(0.012, 0.013, 0.024, matSteel, 0.002, 1), sx * 0.0475, 0.0, -0.245 - i * 0.048);
+    }
+  }
+  // end cap, barrel nut, QD sockets
+  add(root, OCT(0.05, 0.018, 0.94, 1.04, matSteelDark), 0, 0.008, -0.528);
+  add(root, CZ(0.024, 0.024, 0.03, matSteel, 16), 0, 0.03, -0.53);
+  add(root, RING(0.021, 0.003, matSteelDark, 6, 16), 0, 0.03, -0.546);
+  add(root, RING(0.009, 0.0022, matSteelDark, 6, 12), 0.045, -0.016, -0.25);
+  add(root, RING(0.008, 0.002, matSteelDark, 6, 12), 0, -0.0405, -0.52);
+
+  // =========================== BARREL / MUZZLE ===============================
+  add(root, CZ(0.0142, 0.016, 0.3, matSteel, 20), 0, 0.03, -0.68);
+  add(root, CZ(0.0175, 0.0175, 0.03, matSteelDark, 18), 0, 0.03, -0.552);
+  add(root, RB(0.038, 0.044, 0.046, matSteelDark, 0.006, 2), 0, 0.035, -0.6);
+  add(root, CZ(0.012, 0.012, 0.036, matSteel, 12), 0, 0.058, -0.6);
+  add(root, RB(0.03, 0.01, 0.03, matSteelDark, 0.002, 1), 0, 0.066, -0.6);
+  add(root, RB(0.005, 0.024, 0.008, matSteelDark, 0.001, 1), -0.012, 0.083, -0.6);
+  add(root, RB(0.005, 0.024, 0.008, matSteelDark, 0.001, 1), 0.012, 0.083, -0.6);
+  add(root, RING(0.0085, 0.0018, matSteel, 6, 14), 0, 0.096, -0.6);
+  add(root, RB(0.0028, 0.02, 0.003, matSteel, 0.001, 1), 0, 0.085, -0.603);
+  // muzzle brake: round, ported, crowned
+  add(root, CZ(0.019, 0.022, 0.095, matSteelDark, 20), 0, 0.03, -0.8775);
+  for (let i = 0; i < 3; i++) {
+    add(root, RB(0.012, 0.007, 0.012, matBlack, 0.001, 1), 0, 0.045, -0.855 - i * 0.022);
+    add(root, RB(0.034, 0.005, 0.012, matBlack, 0.001, 1), 0, 0.03, -0.848 - i * 0.02);
+  }
+  add(root, CZ(0.024, 0.024, 0.014, matSteel, 20), 0, 0.03, -0.928);
+  add(root, RING(0.012, 0.0035, matSteelDark, 6, 18), 0, 0.03, -0.934);
+
+  // ========================== RAIL LIGHT MODULE ==============================
+  const lightMod = new THREE.Group();
+  lightMod.position.set(0.056, 0.01, -0.31);
+  root.add(lightMod);
+  add(lightMod, RB(0.022, 0.03, 0.055, matBlack, 0.006, 2), 0, 0, 0);
+  add(lightMod, CZ(0.019, 0.019, 0.07, matSteelDark, 16), 0, 0, -0.06);
+  add(lightMod, CZ(0.0165, 0.0165, 0.006, matSteel, 16), 0, 0, -0.096);
+  add(lightMod, CZ(0.014, 0.014, 0.004, new THREE.MeshBasicMaterial({ color: 0x8fe8ff }), 16), 0, 0, -0.1);
+  add(lightMod, RB(0.012, 0.02, 0.05, matSteelDark, 0.003, 2), -0.014, 0, 0.01);
+
+  // ---- optic (enclosed holographic sight; the reticle anchors ADS) ----
+  const optic = new THREE.Group();
+  // sits directly on the top rail (rail top = 0.137) so it never floats
+  optic.position.set(0, 0.142, -0.005);
+  root.add(optic);
+  // quick-detach mount straddling the picatinny rail + cross bolt
+  add(optic, rounded(0.064, 0.03, 0.086, matSteelDark, 0.006, 2), 0, -0.004, 0.002);
+  add(optic, cyl(0.009, 0.009, 0.074, matSteel, 10), 0, -0.012, 0.0, 0, 0, Math.PI / 2);
+  add(optic, box(0.016, 0.02, 0.024, matBlack), 0.04, -0.008, 0.018);
+  add(optic, rounded(0.052, 0.022, 0.09, matSteel, 0.005, 2), 0, 0.018, 0.0);
+  // hollow housing: a bottom body + top hood + two side walls, so the sight
+  // window is a real open tube you can look through (front and rear stay open)
+  add(optic, rounded(0.056, 0.034, 0.1, matSteelDark, 0.008, 2), 0, 0.036, 0.002); // bottom body
+  add(optic, rounded(0.056, 0.016, 0.1, matSteelDark, 0.005, 2), 0, 0.099, 0.002); // top hood
+  for (const sx of [-1, 1]) {
+    add(optic, rounded(0.006, 0.052, 0.1, matSteelDark, 0.0025, 1), sx * 0.025, 0.072, 0.002); // side wall
+  }
+  add(optic, rounded(0.044, 0.004, 0.09, matBlack, 0.0015, 1), 0, 0.054, 0.002); // dark inner floor
+  // window bezels are rings only, so they never close the tube
+  add(optic, new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.0035, 8, 20), matSteel), 0, 0.072, 0.051);
+  add(optic, new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0035, 8, 20), matSteel), 0, 0.072, -0.047);
+  // glass + tiny bright holographic reticle (the reticle is drawn after the
+  // glass so it always stays visible through the window)
   const lens = add(optic, new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.045), matGlass), 0, 0.072, 0.048);
   lens.renderOrder = 2;
   const reticle = add(optic, new THREE.Mesh(
     new THREE.CircleGeometry(0.0055, 20),
     new THREE.MeshBasicMaterial({ color: 0xff6a2a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   ), 0, 0.072, 0.05);
-  add(optic, new THREE.Mesh(
+  reticle.renderOrder = 4;
+  const reticleRing = add(optic, new THREE.Mesh(
     new THREE.RingGeometry(0.0085, 0.0095, 24),
-    new THREE.MeshBasicMaterial({ color: 0xff9a4a, transparent: true, opacity: 0.38, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
+    new THREE.MeshBasicMaterial({ color: 0xff9a4a, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   ), 0, 0.072, 0.0502);
+  reticleRing.renderOrder = 4;
   // crosshair tick marks
-  const tickMat = new THREE.MeshBasicMaterial({ color: 0xffb06a, transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  add(optic, new THREE.Mesh(new THREE.PlaneGeometry(0.003, 0.012), tickMat), 0, 0.088, 0.0496);
-  add(optic, new THREE.Mesh(new THREE.PlaneGeometry(0.012, 0.003), tickMat), 0, 0.056, 0.0496);
-  // Reticle centre in gun space — the ADS pose is solved from this so the
+  const tickMat = new THREE.MeshBasicMaterial({ color: 0xffb06a, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const tickTop = add(optic, new THREE.Mesh(new THREE.PlaneGeometry(0.003, 0.012), tickMat), 0, 0.088, 0.0496);
+  const tickBottom = add(optic, new THREE.Mesh(new THREE.PlaneGeometry(0.012, 0.003), tickMat), 0, 0.056, 0.0496);
+  tickTop.renderOrder = 4;
+  tickBottom.renderOrder = 4;
+  // Reticle centre in held-frame space — the ADS pose is solved from this so the
   // holographic dot lands exactly on the screen crosshair (and therefore on
   // the bullet ray).
   const sightLocal = new THREE.Vector3(0, 0.142 + 0.072, -0.005 + 0.05);
-  // adjustment knob, battery cap, qd lever
-  add(optic, cyl(0.007, 0.007, 0.012, matSteel, 12), 0.032, 0.052, 0.0, 0, 0, Math.PI / 2);
-  add(optic, cyl(0.006, 0.006, 0.009, matSteelDark, 12), 0, 0.034, 0.04);
-  add(optic, box(0.014, 0.008, 0.026, matAccent), 0.038, 0.022, 0.0, 0, 0, 0.1);
+  // adjustment knob, battery cap, brightness buttons, qd lever
+  add(optic, cyl(0.008, 0.008, 0.014, matSteel, 12), 0.03, 0.052, 0.0, 0, 0, Math.PI / 2);
+  add(optic, cyl(0.008, 0.008, 0.01, matSteel, 12), 0, 0.1, 0.008);
+  add(optic, cyl(0.0065, 0.0065, 0.012, matSteelDark, 12), 0, 0.021, 0.03);
+  add(optic, box(0.006, 0.008, 0.01, matAccent), -0.0275, 0.05, 0.012);
+  add(optic, box(0.014, 0.008, 0.026, matAccent), 0.031, 0.03, 0.0, 0, 0, 0.1);
 
-  // ---- charging handle & bolt release ----
+  // ======================= LOWER RECEIVER & CONTROLS =========================
+  add(root, PROF([
+    [0.14, -0.006], [0.14, -0.052], [0.108, -0.06], [0.09, -0.105], [0.02, -0.105],
+    [0.006, -0.058], [-0.05, -0.055], [-0.086, -0.02], [-0.088, -0.006],
+  ], 0.088, matSteel, 0.005), 0, 0, 0);
+  // pistol grip: curved profile, rubber front strap, grooves, base plate
+  add(root, PROF([
+    [0.13, -0.052], [0.182, -0.056], [0.188, -0.078], [0.174, -0.15], [0.162, -0.166],
+    [0.142, -0.161], [0.132, -0.11], [0.125, -0.07],
+  ], 0.04, matPolymer, 0.004), 0, 0, 0);
+  add(root, RB(0.048, 0.034, 0.07, matPolymer, 0.008, 2), 0, -0.048, 0.148); // grip tang -> receiver
+  add(root, RB(0.034, 0.07, 0.012, matRubber, 0.004, 2), 0, -0.108, 0.127, 0.2);
+  add(root, RB(0.042, 0.009, 0.036, matBlack, 0.003, 2), 0, -0.166, 0.146, 0.2); // grip base plate
+  for (let i = 0; i < 3; i++) {
+    add(root, HEXBOLT(0.0022, 0.0018), 0.019, -0.075 - i * 0.028, 0.154 - i * 0.008);
+    add(root, HEXBOLT(0.0022, 0.0018), -0.019, -0.075 - i * 0.028, 0.154 - i * 0.008);
+  }
+  // trigger group: heavy housing welded from the receiver into the grip,
+  // with a solid guard loop and the trigger blade inside the opening
+  add(root, RB(0.028, 0.032, 0.082, matSteelDark, 0.006, 2), 0, -0.062, 0.112); // trigger housing
+  add(root, PROF_HOLE([
+    [0.076, -0.078], [0.152, -0.078], [0.158, -0.09], [0.152, -0.118], [0.13, -0.126],
+    [0.098, -0.126], [0.082, -0.116], [0.076, -0.098],
+  ], [
+    [0.09, -0.088], [0.145, -0.088], [0.15, -0.1], [0.145, -0.116], [0.096, -0.116], [0.09, -0.1],
+  ], 0.022, matSteelDark, 0.003), 0, 0, 0);
+  const trigger = add(root, RB(0.008, 0.026, 0.009, matSteelDark, 0.002, 1), 0, -0.1, 0.115);
+  add(trigger, RB(0.007, 0.015, 0.006, matSteel, 0.0015, 1), 0, 0.008, 0.004);
+  // ambidextrous safety selectors
+  for (const sx of [-1, 1]) {
+    add(root, new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.012, 12, 1, false), matSteelDark), sx * 0.047, -0.002, 0.062, 0, 0, Math.PI / 2);
+    add(root, RB(0.005, 0.014, 0.03, matAccent, 0.0015, 1), sx * 0.052, -0.004, 0.075);
+  }
+  // charging handle (WeaponSystem animates this group in Z; base z = 0.145)
   const charge = new THREE.Group();
   charge.position.set(0, 0.105, 0.145);
-  gun.add(charge);
-  add(charge, box(0.045, 0.012, 0.018, matSteel), 0, 0, 0);
-  add(charge, box(0.012, 0.018, 0.016, matSteelDark), -0.023, 0, 0.002);
-
-  // ---- magazine ----
+  root.add(charge);
+  add(charge, RB(0.05, 0.012, 0.016, matSteel, 0.003, 1), 0, 0, -0.038);
+  add(charge, RB(0.012, 0.018, 0.014, matSteelDark, 0.003, 1), -0.024, 0, -0.036);
+  add(charge, RB(0.012, 0.018, 0.014, matSteelDark, 0.003, 1), 0.024, 0, -0.036);
+  add(charge, RB(0.02, 0.01, 0.086, matSteelDark, 0.002, 1), 0, -0.004, -0.086);
+  add(charge, RB(0.036, 0.008, 0.012, matBlack, 0.002, 1), 0, -0.002, -0.132);
+  // bolt — animation drives x/z; geometry sits just inside the ejection port
+  const boltGeo = new THREE.CylinderGeometry(0.011, 0.011, 0.05, 14, 1, false);
+  boltGeo.rotateX(Math.PI / 2);
+  boltGeo.translate(-0.006, 0, 0);
+  const bolt = add(root, new THREE.Mesh(boltGeo, matSteel), 0.055, 0.062, -0.005);
+  add(bolt, RB(0.012, 0.012, 0.012, matSteelDark, 0.002, 1), 0, 0, 0.022);
+  // magazine (WeaponSystem resets this group to (0, -0.096, 0.035) / rot -0.12)
   const magGroup = new THREE.Group();
   magGroup.position.set(0, -0.096, 0.035);
   magGroup.rotation.x = -0.12;
-  gun.add(magGroup);
-  const magMesh = add(magGroup, rounded(0.062, 0.155, 0.095, matPolymer, 0.01, 2), 0, -0.07, 0.02);
-  magMesh.rotation.x = -0.13;
-  add(magGroup, rounded(0.068, 0.016, 0.10, matBlack, 0.005, 2), 0, -0.148, 0.03, -0.13);
-  // witness strip of rounds
-  for (let i = 0; i < 3; i++) {
-    add(magGroup, cyl(0.005, 0.005, 0.056, matBrass, 10), 0, -0.02 - i * 0.018, 0.038, Math.PI / 2);
-  }
-
-  // ---- spare magazine (reload animation) ----
+  root.add(magGroup);
+  const magMesh = add(magGroup, PROF([
+    [-0.01, 0.048], [0.036, 0.048], [0.044, 0.0], [0.054, -0.07], [0.047, -0.122],
+    [0.012, -0.116], [0.002, -0.06], [-0.012, -0.015],
+  ], 0.05, matPolymer, 0.004), 0, 0, 0);
+  magMesh.name = 'vxr7-magazine';
+  add(magGroup, RB(0.052, 0.01, 0.062, matBlack, 0.004, 2), 0, -0.124, 0.018, -0.13, 0, 0);
+  add(magGroup, RB(0.042, 0.006, 0.046, matBrass, 0.002, 1), 0, 0.038, 0.008, -0.13); // top round strip
+  // spare magazine (reload animation; hidden by default)
   const spare = new THREE.Group();
-  const spareMesh = add(spare, rounded(0.062, 0.155, 0.095, matPolymer, 0.01, 2), 0, -0.07, 0.02);
-  spareMesh.rotation.x = -0.13;
-  add(spare, rounded(0.068, 0.016, 0.10, matBlack, 0.005, 2), 0, -0.148, 0.03, -0.13);
+  add(spare, PROF([
+    [-0.01, 0.048], [0.036, 0.048], [0.044, 0.0], [0.054, -0.07], [0.047, -0.122],
+    [0.012, -0.116], [0.002, -0.06], [-0.012, -0.015],
+  ], 0.05, matPolymer, 0.004), 0, 0, 0);
+  add(spare, RB(0.052, 0.01, 0.062, matBlack, 0.004, 2), 0, -0.124, 0.018, -0.13, 0, 0);
   spare.visible = false;
-  gun.add(spare);
+  root.add(spare);
 
-  // ---- pistol grip / trigger guard / trigger ----
-  add(gun, rounded(0.056, 0.16, 0.075, matPolymer, 0.012, 2), 0, -0.115, 0.13, 0.21);
-  add(gun, box(0.045, 0.012, 0.16, matBlack), 0, -0.074, 0.06, 0.08);
-  add(gun, rounded(0.038, 0.008, 0.12, matBlack, 0.004, 2), 0, -0.098, 0.105);
-  const trigger = add(gun, box(0.008, 0.032, 0.012, matSteelDark), 0, -0.087, 0.085, 0.2);
-  // grip texture panels
-  add(gun, box(0.005, 0.085, 0.06, matRubber), 0.03, -0.12, 0.14, 0.21);
-  add(gun, box(0.005, 0.085, 0.06, matRubber), -0.03, -0.12, 0.14, 0.21);
-
-  // ---- rear receiver cap (stock/butt is behind the camera and never shown,
-  // which keeps the viewmodel silhouette clean) ----
-  add(gun, rounded(0.085, 0.09, 0.02, matSteelDark, 0.006, 2), 0, 0.012, 0.152);
-  add(gun, box(0.052, 0.016, 0.012, matBlack), 0, 0.062, 0.158);
-  add(gun, cyl(0.012, 0.012, 0.014, matBrass, 12), 0.03, -0.02, 0.16, 0, 0, Math.PI / 2);
-  // qd sling point on the left rear of the receiver
-  add(gun, new THREE.Mesh(new THREE.TorusGeometry(0.013, 0.003, 6, 12), matSteelDark), -0.052, -0.02, 0.155, 0, Math.PI / 2);
-
-  // ---- rail light / laser module ----
-  const lightMod = new THREE.Group();
-  lightMod.position.set(0, -0.015, -0.32);
-  gun.add(lightMod);
-  add(lightMod, rounded(0.045, 0.034, 0.09, matBlack, 0.006, 2), 0.052, 0.0, 0);
-  add(lightMod, cyl(0.012, 0.012, 0.015, matSteelDark, 14), 0.052, 0.0, -0.052, Math.PI / 2);
-  add(lightMod, cyl(0.008, 0.008, 0.006, new THREE.MeshBasicMaterial({ color: 0x8fe8ff }), 14), 0.052, 0.0, -0.061, Math.PI / 2);
-  // cable — both ends must terminate INSIDE geometry: the front end inside the
-  // light-module body, the rear end inside the lower receiver (was floating in
-  // mid-air ~5 mm behind the light and ~25 mm in front of the receiver).
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.052, -0.020, -0.300),
-    new THREE.Vector3(0.06, -0.06, -0.20),
-    new THREE.Vector3(0.030, -0.050, -0.055),
-  ]);
-  add(gun, new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.0035, 5), matRubber));
-
-  // sling omitted from the viewmodel: a loose strap this close to the camera
-  // reads as a floating stick and breaks the silhouette.
-
-  // ---- markings / side plates ----
+  // ========================== MARKINGS / SIDE PLATES =========================
+  add(root, RB(0.004, 0.046, 0.2, matSteelDark, 0.0015, 1), -0.0455, -0.018, 0.015); // left sideplate
+  add(root, RB(0.01, 0.014, 0.03, matSteelDark, 0.002, 1), -0.049, -0.012, 0.058); // bolt catch lever
   const labelMat = new THREE.MeshBasicMaterial({
     map: makeLabelTexture(), transparent: true, depthWrite: false, toneMapped: false, opacity: 0.92,
   });
-  const label = add(gun, new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.033), labelMat), -0.0545, 0.008, 0.026, 0, -Math.PI / 2);
+  const label = add(root, new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.033), labelMat), -0.0492, 0.02, 0.01, 0, -Math.PI / 2);
   label.renderOrder = 3;
-  // recessed receiver side plate breaks up the silhouette and catches rim light
-  add(gun, rounded(0.006, 0.072, 0.19, matSteelDark, 0.002, 1), -0.052, 0.002, -0.015);
-  for (let i = 0; i < 3; i++) {
-    add(gun, cyl(0.006, 0.006, 0.005, matSteel, 10), -0.056, 0.031, -0.085 + i * 0.062, 0, 0, Math.PI / 2);
-    add(gun, cyl(0.0045, 0.0045, 0.004, matSteel, 10), -0.056, -0.028, -0.06 + i * 0.062, 0, 0, Math.PI / 2);
-  }
-  // ambi selector + glowing status bar + low-profile QD point
-  add(gun, cyl(0.011, 0.011, 0.009, matAccent, 14), -0.058, -0.04, 0.075, 0, 0, Math.PI / 2);
-  const statusMat = new THREE.MeshBasicMaterial({ color: 0x73e6ff, toneMapped: false });
-  add(gun, new THREE.Mesh(new THREE.PlaneGeometry(0.006, 0.028), statusMat), -0.0575, 0.034, 0.078, 0, -Math.PI / 2);
-  add(gun, new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.0028, 6, 14), matSteelDark), -0.062, -0.005, 0.17, 0, Math.PI / 2);
-  // stencilled warning stripe on the upper receiver
-  add(gun, box(0.006, 0.014, 0.036, matAccent), -0.052, 0.052, 0.13, 0, 0, 0.06);
-  // long accent rail + fire-mode pictogram break up the black slab
-  add(gun, box(0.003, 0.006, 0.12, matAccent), -0.053, -0.008, 0.09);
   const modeTex = makeLabelTexture('SEMI // AUTO', '07-421');
-  add(gun, new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.021),
-    new THREE.MeshBasicMaterial({ map: modeTex, transparent: true, depthWrite: false, toneMapped: false, opacity: 0.55 })),
-    -0.054, 0.038, 0.075, 0, -Math.PI / 2);
-  // small hex bolts around the side plate
-  for (let i = 0; i < 4; i++) {
-    add(gun, cyl(0.0045, 0.0045, 0.004, matSteel, 6), -0.0555, -0.045 + (i % 2) * 0.078, -0.02 + Math.floor(i / 2) * 0.055, 0, 0, Math.PI / 2);
-  }
-  // small serial plate on right side
+  add(root, new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.021),
+    new THREE.MeshBasicMaterial({ map: modeTex, transparent: true, depthWrite: false, toneMapped: false, opacity: 0.62 })),
+    -0.0492, -0.008, 0.07, 0, -Math.PI / 2);
+  const statusMat = new THREE.MeshBasicMaterial({ color: 0x73e6ff, toneMapped: false });
+  add(root, new THREE.Mesh(new THREE.PlaneGeometry(0.006, 0.028), statusMat), -0.0495, 0.042, 0.075, 0, -Math.PI / 2);
+  add(root, box(0.004, 0.012, 0.034, matAccent), -0.0492, 0.042, 0.112, 0, 0, 0.06);
   const serialTex = makeLabelTexture('SN 07-421', 'VXR // 5.56×45');
-  const serialMat = new THREE.MeshBasicMaterial({ map: serialTex, transparent: true, depthWrite: false, toneMapped: false, opacity: 0.62 });
-  add(gun, new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.024), serialMat), 0.0535, -0.035, 0.06, 0, Math.PI / 2, 0);
-
-  // ---- hands / arms ----
-  buildHands(gun, { glove: matGlove, dark: matGloveDark, sleeve: matSleeve, palmMat: matGlovePalm, accent: matAccent });
+  add(root, new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.024),
+    new THREE.MeshBasicMaterial({ map: serialTex, transparent: true, depthWrite: false, toneMapped: false, opacity: 0.68 })),
+    0.0462, -0.02, 0.045, 0, Math.PI / 2, 0);
+  for (let i = 0; i < 4; i++) {
+    add(root, HEXBOLT(0.0042, 0.0026), -0.0462, -0.042 + (i % 2) * 0.05, -0.03 + Math.floor(i / 2) * 0.06, 0, 0, Math.PI / 2);
+  }
+  add(root, RING(0.011, 0.0026, matSteelDark, 6, 14), -0.0428, -0.03, 0.135, 0, Math.PI / 2, 0);
 
   // ---- muzzle flash assembly ----
   const flashGroup = new THREE.Group();
   flashGroup.position.set(0, 0.03, -0.92);
-  gun.add(flashGroup);
+  root.add(flashGroup);
   const flashTex = makeFlashTexture();
   const flashMats = [];
   // Sprite-based flash: always camera-facing, additive (a black texel adds
@@ -651,41 +713,84 @@ export function buildVxr7Viewmodel({ scene, muzzleLight }) {
   cone.position.z = -0.07;
   cone.renderOrder = 5;
   flashGroup.add(cone);
-  // muzzle position in gun space (also the smoke spawn point) and the flash light
+  // muzzle position in held-frame space (also the smoke spawn point) and the
+  // optional flash light, re-parented under the flash group when supplied
   const muzzleLocal = new THREE.Vector3(0, 0.03, -0.95);
-  muzzleLight.position.set(0, 0, -0.02);
-  flashGroup.add(muzzleLight);
+  if (muzzleLight) {
+    muzzleLight.position.set(0, 0, -0.02);
+    flashGroup.add(muzzleLight);
+  }
+
+  return {
+    root,
+    mats,
+    bolt,
+    charging: charge,
+    magazine: magGroup,
+    spareMagazine: spare,
+    trigger,
+    reticle,
+    sightLocal,
+    flashGroup,
+    flashMats,
+    muzzleLocal,
+    muzzleLight,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Held viewmodel (compatibility layer for WeaponSystem)
+// ---------------------------------------------------------------------------
+
+/**
+ * Game-facing held rig: gunRoot > gun(scale 0.62) > { weaponRoot, handsRoot }.
+ * Both halves are bound (equipped) by default so `WeaponSystem` behaves exactly
+ * like before the split; `WeaponSystem.equip()/unequip()` add/remove them later.
+ *
+ * @param {{ scene: THREE.Scene, muzzleLight: THREE.PointLight }} opts
+ * @returns flat handle object (legacy fields + weaponRoot/handsRoot)
+ */
+export function buildVxr7Viewmodel({ scene, muzzleLight } = {}) {
+  if (!scene) throw new Error('[vxr7] buildVxr7Viewmodel requires a scene');
+  if (!muzzleLight) throw new Error('[vxr7] buildVxr7Viewmodel requires a muzzleLight');
+
+  const mats = createVxr7Materials();
+
+  const gunRoot = new THREE.Group();
+  scene.add(gunRoot);
+
+  // held frame: the weapon's held scale; hands and weapon share this frame
+  const gun = new THREE.Group();
+  gun.scale.setScalar(0.62);
+  gunRoot.add(gun);
+
+  const weapon = buildVxr7Weapon({ mats, muzzleLight });
+  gun.add(weapon.root);
+
+  const hands = buildVxr7Hands({ mats });
+  gun.add(hands.root);
 
   // No square smoke cards in the viewmodel: they can catch a bad blend state
   // on some GPUs and read as a black panel. World-space smoke covers the mood.
   const smokePuffs = [];
 
   return {
-    gunRoot: root,
+    gunRoot,
     gun,
-    matSteel,
-    matSteelDark,
-    matBlack,
-    matPolymer,
-    matRubber,
-    matAccent,
-    matBrass,
-    matGlass,
-    matGlove,
-    matGlovePalm,
-    matGloveDark,
-    matSleeve,
-    bolt,
-    reticle,
-    sightLocal,
-    charging: charge,
-    magazine: magGroup,
-    spareMagazine: spare,
-    trigger,
-    flashGroup,
-    flashMats,
-    muzzleLocal,
-    muzzleLight,
+    ...mats,
+    bolt: weapon.bolt,
+    reticle: weapon.reticle,
+    sightLocal: weapon.sightLocal,
+    charging: weapon.charging,
+    magazine: weapon.magazine,
+    spareMagazine: weapon.spareMagazine,
+    trigger: weapon.trigger,
+    flashGroup: weapon.flashGroup,
+    flashMats: weapon.flashMats,
+    muzzleLocal: weapon.muzzleLocal,
+    muzzleLight: weapon.muzzleLight,
     smokePuffs,
+    weaponRoot: weapon.root,
+    handsRoot: hands.root,
   };
 }

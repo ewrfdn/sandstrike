@@ -1,0 +1,18 @@
+{
+  "fog": {
+    "color": "#d6a26e",
+    "density": 0.0098
+  },
+  "background": "#d9ab79",
+  "lights": {
+    "sun": {
+      "intensity": 3.4
+    },
+    "hemisphere": {
+      "intensity": 0.86
+    },
+    "sunPulse": {
+      "speed": 0.04
+    }
+  }
+}

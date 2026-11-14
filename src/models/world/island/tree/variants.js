@@ -1,0 +1,192 @@
+/**
+ * PROCEDURAL TREE KIT // variant specs.
+ *
+ * Four island-giant variants. Variant 0 is the stage hero (12k-16k tris, 14 m tall,
+ * ~9 m crown, the shipped design's silhouette); the others are its siblings for the 63
+ * map instances, so the jungle stops looking like one tree copy-pasted.
+ *
+ * Every random decision of a build is seeded from `seed`; nothing else in the generator
+ * touches global state, so building variant N twice is byte-identical.
+ *
+ * Tuning guide (numbers are metres unless stated):
+ *  - the leaf envelope top is `trunkTipY + crownLift + crownRY` (cards add ~1.2 m), so
+ *    total height ≈ tip + crownLift + crownRY + 1.2,
+ *  - `crownR` is the ellipsoid radius; the hard leaf-tip limit is `leafR` (crown width =
+ *    2 * leafR),
+ *  - `load` numbers only steer `pipeRadii` (relative leaf areas),
+ *  - `foliage.*` are card counts for the FULL-DETAIL stage build; the map build scales
+ *    them by `density` (see jungle-tree.js quality tiers).
+ */
+
+const BASE = {
+  seed: 0x4a17,
+  lean: 0.11,
+  leanAz: 0.7,
+  trunkH: 8.3,
+  trunkWobble: 0.05,
+  crownLift: 1.9,
+  crownR: 4.3,
+  crownRY: 3.2,
+  leafR: 4.38,
+  leafTop: 14.1,
+  cardMul: 1.0,
+  rTrunk0: 0.3,
+  rTrunk1: 0.19,
+  rBase: 0.29,
+  rLimb0: 0.2,
+  rLimb1: 0.035,
+  rSub0: 0.085,
+  rSub1: 0.016,
+  rTwig0: 0.026,
+  rTwig1: 0.006,
+  rLow0: 0.13,
+  rLow1: 0.022,
+  trunk: { bump: 0.05, flare: 0.92, roots: 4.5, flareH: 0.155, flute: 0.036, fluteN: 7, seed: 3 },
+  limbs: { count: 5, tMin: 0.6, tMax: 0.9, elevMin: 20, elevMax: 48, len: 5.1, load: 1.0 },
+  sub: { countMin: 2, countMax: 3, lenMin: 1.5, lenMax: 2.6, load: 0.34 },
+  twigs: { countMin: 4, countMax: 6, lenMin: 0.42, lenMax: 0.95, load: 0.05 },
+  lowLimbs: { count: 3, tMin: 0.54, tMax: 0.7, lenMin: 2.6, lenMax: 3.4, load: 0.5 },
+  shell: { points: 150, minY: -0.32, clump: 0.4, noise: 1.0, support: 40 },
+  buttress: { count: 4, outMin: 1.85, outMax: 2.6, hMin: 0.72, hMax: 1.14, thickMin: 0.15, thickMax: 0.23 },
+  lianas: 2,
+  vines: 3,
+  vineLenMin: 3.4,
+  vineLenMax: 5.0,
+  epiphytes: 8,
+  shoots: 7,
+  foliage: {
+    pad: 112,
+    twig: 26,
+    shell: 520,
+    limb: [30, 36, 42],
+    low: 40,
+    skirt: 9,
+    skirtCards: 34,
+    shoot: 6,
+    vine: 8,
+    epi: 16,
+    litter: 26,
+    hue: [0.4, 0.84],
+  },
+};
+
+function variant(over) {
+  return Object.freeze({
+    ...BASE,
+    ...over,
+    trunk: { ...BASE.trunk, ...(over.trunk || {}) },
+    limbs: { ...BASE.limbs, ...(over.limbs || {}) },
+    sub: { ...BASE.sub, ...(over.sub || {}) },
+    twigs: { ...BASE.twigs, ...(over.twigs || {}) },
+    lowLimbs: { ...BASE.lowLimbs, ...(over.lowLimbs || {}) },
+    shell: { ...BASE.shell, ...(over.shell || {}) },
+    buttress: { ...BASE.buttress, ...(over.buttress || {}) },
+    foliage: { ...BASE.foliage, ...(over.foliage || {}) },
+  });
+}
+
+export const TREE_VARIANTS = Object.freeze([
+  // 0 // the stage hero: the shipped tree's proportions, generated crown
+  variant({
+    id: 'giant-0',
+    name: '巨冠乔木 A',
+    seed: 0x4a17,
+    cardMul: 0.93,
+    lean: 0.1,
+    leanAz: 0.7,
+  }),
+  // 1 // broad, low, bushier - six limbs and a wider crown
+  variant({
+    id: 'giant-1',
+    name: '巨冠乔木 B',
+    seed: 0x51ab,
+    cardMul: 0.98,
+    lean: 0.14,
+    leanAz: 3.9,
+    trunkH: 7.6,
+    trunkWobble: 0.07,
+    crownLift: 1.95,
+    crownR: 4.55,
+    crownRY: 3.35,
+    leafR: 4.7,
+    leafTop: 13.6,
+    rTrunk0: 0.32,
+    rTrunk1: 0.2,
+    rBase: 0.32,
+    limbs: { count: 6, tMin: 0.56, tMax: 0.86, elevMin: 18, elevMax: 44, len: 4.8, load: 0.85 },
+    sub: { countMin: 2, countMax: 3, lenMin: 1.4, lenMax: 2.5, load: 0.3 },
+    twigs: { countMin: 4, countMax: 6, lenMin: 0.4, lenMax: 0.9, load: 0.045 },
+    lowLimbs: { count: 2, tMin: 0.5, tMax: 0.64, lenMin: 2.8, lenMax: 3.5, load: 0.46 },
+    shell: { points: 150, minY: -0.3, clump: 0.38, noise: 1.15, support: 40 },
+    buttress: { count: 5, outMin: 1.7, outMax: 2.5, hMin: 0.66, hMax: 1.08, thickMin: 0.14, thickMax: 0.22 },
+    lianas: 1,
+    vines: 2,
+    epiphytes: 7,
+    shoots: 8,
+    foliage: { pad: 100, twig: 21, shell: 400, limb: [24, 32, 38], low: 34, skirt: 9, skirtCards: 28, epi: 14, hue: [0.42, 0.88] },
+  }),
+  // 2 // tall, narrow, long clean bole - the emergent that pokes out of the canopy
+  variant({
+    id: 'giant-2',
+    name: '巨冠乔木 C',
+    seed: 0x6d2f,
+    cardMul: 1.42,
+    lean: 0.07,
+    leanAz: 2.2,
+    trunkH: 9.3,
+    trunkWobble: 0.045,
+    crownLift: 1.7,
+    crownR: 4.05,
+    crownRY: 3.25,
+    leafR: 4.45,
+    leafTop: 14.9,
+    rTrunk0: 0.28,
+    rTrunk1: 0.18,
+    rBase: 0.28,
+    limbs: { count: 4, tMin: 0.64, tMax: 0.92, elevMin: 24, elevMax: 52, len: 4.9, load: 1.15 },
+    sub: { countMin: 2, countMax: 3, lenMin: 1.6, lenMax: 2.7, load: 0.36 },
+    twigs: { countMin: 4, countMax: 7, lenMin: 0.45, lenMax: 1.0, load: 0.05 },
+    lowLimbs: { count: 1, tMin: 0.62, tMax: 0.72, lenMin: 2.4, lenMax: 2.9, load: 0.42 },
+    shell: { points: 142, minY: -0.28, clump: 0.4, noise: 0.95, support: 34 },
+    buttress: { count: 4, outMin: 1.6, outMax: 2.2, hMin: 0.9, hMax: 1.25, thickMin: 0.14, thickMax: 0.2 },
+    lianas: 2,
+    vines: 3,
+    epiphytes: 6,
+    shoots: 6,
+    foliage: { pad: 92, twig: 19, shell: 350, limb: [22, 30, 36], low: 26, skirt: 8, skirtCards: 24, epi: 12, hue: [0.2, 0.6] },
+  }),
+  // 3 // crooked storm-damaged one: more lianas, more vines, more dead wood
+  variant({
+    id: 'giant-3',
+    name: '巨冠乔木 D',
+    seed: 0x2f83,
+    cardMul: 1.11,
+    lean: 0.2,
+    leanAz: 5.1,
+    trunkH: 8.6,
+    trunkWobble: 0.09,
+    crownLift: 1.85,
+    crownR: 4.35,
+    crownRY: 3.25,
+    leafR: 4.6,
+    leafTop: 14.1,
+    rTrunk0: 0.31,
+    rTrunk1: 0.185,
+    rBase: 0.31,
+    limbs: { count: 5, tMin: 0.58, tMax: 0.9, elevMin: 16, elevMax: 46, len: 4.8, load: 0.95 },
+    sub: { countMin: 2, countMax: 3, lenMin: 1.4, lenMax: 2.5, load: 0.33 },
+    twigs: { countMin: 4, countMax: 6, lenMin: 0.4, lenMax: 0.9, load: 0.05 },
+    lowLimbs: { count: 3, tMin: 0.5, tMax: 0.7, lenMin: 2.4, lenMax: 3.4, load: 0.48 },
+    shell: { points: 150, minY: -0.35, clump: 0.34, noise: 1.2, support: 40 },
+    buttress: { count: 4, outMin: 2.0, outMax: 2.7, hMin: 0.8, hMax: 1.2, thickMin: 0.16, thickMax: 0.24 },
+    lianas: 3,
+    vines: 4,
+    vineLenMin: 3.8,
+    vineLenMax: 5.4,
+    epiphytes: 10,
+    shoots: 7,
+    foliage: { pad: 94, twig: 20, shell: 370, limb: [24, 32, 36], low: 32, skirt: 10, skirtCards: 26, vine: 10, epi: 16, hue: [0.35, 0.9] },
+  }),
+]);
+
+export default TREE_VARIANTS;

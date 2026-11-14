@@ -1,0 +1,27 @@
+{
+  "format": "sandstrike/map@1",
+  "id": "test-range",
+  "name": "TRAINING RANGE",
+  "subtitle": "训练靶场 · 第九区",
+  "description": "沙暴前哨后方的封闭训练靶场：南侧集结广场与补给摊位、中央门楼、北侧遮阳柱廊与射击区。",
+  "bounds": {
+    "minX": -21,
+    "maxX": 21,
+    "minZ": -21,
+    "maxZ": 21
+  },
+  "playerSpawn": {
+    "x": 0,
+    "y": 0,
+    "z": 16,
+    "yaw": 0
+  },
+  "parts": {
+    "terrain": "terrain.json",
+    "environment": "environment.json",
+    "architecture": "architecture.json",
+    "props": "props.json",
+    "dressing": "dressing.json",
+    "spawns": "spawns.json"
+  }
+}

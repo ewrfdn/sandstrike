@@ -1,0 +1,111 @@
+{
+  "candidates": [
+    [
+      -10,
+      6,
+      "PLAZA WEST"
+    ],
+    [
+      10,
+      6,
+      "PLAZA EAST"
+    ],
+    [
+      -12.8,
+      13.8,
+      "STAGING WEST"
+    ],
+    [
+      11,
+      18.5,
+      "STAGING EAST"
+    ],
+    [
+      0,
+      9,
+      "STAGING NORTH"
+    ],
+    [
+      0,
+      -11,
+      "RANGE GATE"
+    ],
+    [
+      -15,
+      -16.5,
+      "RANGE WEST"
+    ],
+    [
+      13,
+      -13.5,
+      "RANGE EAST"
+    ],
+    [
+      -15.5,
+      -19.5,
+      "RANGE BACK WEST"
+    ],
+    [
+      11.2,
+      -16.5,
+      "RANGE BACK EAST"
+    ],
+    [
+      3.5,
+      -14.5,
+      "RANGE YARD"
+    ]
+  ],
+  "landmarks": [
+    {
+      "x": 0,
+      "z": 16,
+      "name": "STAGING"
+    },
+    {
+      "x": 0,
+      "z": 3,
+      "name": "PLAZA"
+    },
+    {
+      "x": 0,
+      "z": -8.5,
+      "name": "RANGE GATE"
+    },
+    {
+      "x": -14,
+      "z": -13,
+      "name": "RANGE WEST"
+    },
+    {
+      "x": 14,
+      "z": -13,
+      "name": "RANGE EAST"
+    },
+    {
+      "x": 0,
+      "z": -19.4,
+      "name": "RANGE BACK"
+    },
+    {
+      "x": -19.5,
+      "z": -0.5,
+      "name": "WEST LANE"
+    },
+    {
+      "x": 19.5,
+      "z": -0.5,
+      "name": "EAST LANE"
+    }
+  ],
+  "resolve": {
+    "clearance": 1.45,
+    "playerMinDistance": 4.5,
+    "searchRadius": 8,
+    "step": 0.5,
+    "angleSteps": 24,
+    "validateClearance": 1.1,
+    "playerClearance": 0.9,
+    "minCount": 8
+  }
+}

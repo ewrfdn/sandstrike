@@ -1,0 +1,76 @@
+{
+  "candidates": [
+    [0, 15.5, "PLAZA SOUTH"],
+    [9.6, 8.2, "PLAZA EAST"],
+    [-9.6, 8.2, "PLAZA WEST"],
+    [0, -12.5, "COURTYARD"],
+    [7.5, -17.5, "COURTYARD NE"],
+    [-7.5, -17, "COURTYARD NW"],
+    [25.5, -13, "A LONG"],
+    [-24.5, -13, "B TUNNEL"],
+    [17, -26, "A SITE"],
+    [-18, -26, "B SITE"],
+    [0, -27.6, "CT YARD"],
+    [25, 10, "EAST STREET"],
+    [-25, 10, "WEST STREET"],
+    [30, -24, "A SITE EAST"],
+    [-30, -24.5, "B SITE WEST"]
+  ],
+  "landmarks": [
+    {
+      "x": 0,
+      "z": 26,
+      "name": "STAGING"
+    },
+    {
+      "x": 0,
+      "z": 9.5,
+      "name": "PLAZA"
+    },
+    {
+      "x": 0,
+      "z": -8.5,
+      "name": "MID GATE"
+    },
+    {
+      "x": 0,
+      "z": -15.2,
+      "name": "COURTYARD"
+    },
+    {
+      "x": 17.5,
+      "z": -24,
+      "name": "A SITE"
+    },
+    {
+      "x": -18,
+      "z": -24,
+      "name": "B SITE"
+    },
+    {
+      "x": 27,
+      "z": -14,
+      "name": "A LONG"
+    },
+    {
+      "x": -27,
+      "z": -14,
+      "name": "B TUNNEL"
+    },
+    {
+      "x": 0,
+      "z": -29.5,
+      "name": "CT YARD"
+    }
+  ],
+  "resolve": {
+    "clearance": 1.45,
+    "playerMinDistance": 4.5,
+    "searchRadius": 8,
+    "step": 0.5,
+    "angleSteps": 24,
+    "validateClearance": 1.1,
+    "playerClearance": 0.9,
+    "minCount": 8
+  }
+}

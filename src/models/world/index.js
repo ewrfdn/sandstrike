@@ -33,6 +33,8 @@ import * as lampPost from './lamp-post.js';
 import * as flagpole from './flagpole.js';
 import * as aLongShade from './a-long-shade.js';
 import * as rpgLauncher from './rpg-launcher.js';
+// Tropical island map assets (src/models/world/island/, see ISLAND_ASSETS.md).
+import { ISLAND_MODELS } from './island/index.js';
 
 export const WORLD_MODELS = [
   { module: crate },
@@ -69,4 +71,6 @@ export const WORLD_MODELS = [
   { module: flagpole },
   { module: aLongShade },
   { module: rpgLauncher, stage: { lift: true } },
+  // Appended last so the outpost-07 catalog indices stay stable.
+  ...ISLAND_MODELS,
 ];

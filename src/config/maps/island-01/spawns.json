@@ -1,0 +1,48 @@
+{
+  "playerSpawn": { "x": 0, "y": 0, "z": 46, "yaw": 0 },
+  "enemies": [
+    { "x": 0, "z": -40, "label": "NORTH JUNGLE" },
+    { "x": 14, "z": -36, "label": "NORTH-EAST RUINS" },
+    { "x": -16, "z": -34, "label": "TEMPLE APPROACH" },
+    { "x": 30, "z": -24, "label": "EAST RIDGE" },
+    { "x": -30, "z": -20, "label": "WEST JUNGLE" },
+    { "x": 36, "z": -2, "label": "EAST BEACH" },
+    { "x": -38, "z": 10, "label": "WEST SHORE" },
+    { "x": 30, "z": 22, "label": "EAST PALMS" },
+    { "x": -28, "z": 30, "label": "SOUTH-WEST PATH" },
+    { "x": 20, "z": 34, "label": "SOUTH-EAST PALMS" },
+    { "x": -12, "z": 38, "label": "SOUTH BEACH WEST" },
+    { "x": 8, "z": -12, "label": "HEART NORTH" },
+    { "x": -6, "z": -2, "label": "HEART WEST" },
+    { "x": 24, "z": 8, "label": "VILLAGE ROAD" },
+    { "x": -24, "z": 4, "label": "HEART SOUTH-WEST" },
+    { "x": 34, "z": 32, "label": "SOUTH-EAST SHORE" },
+    { "x": -34, "z": -8, "label": "WEST RUINS" },
+    { "x": 4, "z": -26, "label": "TEMPLE GATE" },
+    { "x": -20, "z": -20, "label": "WEST WAY" },
+    { "x": 16, "z": -8, "label": "EAST WAY" },
+    { "x": -16, "z": 20, "label": "VILLAGE WEST" },
+    { "x": 12, "z": 28, "label": "VILLAGE EAST" }
+  ],
+  "landmarks": [
+    { "x": -2, "z": 26, "name": "VILLAGE" },
+    { "x": -10, "z": -26, "name": "TEMPLE" },
+    { "x": 10, "z": -24, "name": "TOWER" },
+    { "x": 24, "z": 45, "name": "JETTY" },
+    { "x": 44, "z": 13.5, "name": "WRECK" },
+    { "x": 0, "z": 2, "name": "HEART" },
+    { "x": 0, "z": 43, "name": "CAMP" },
+    { "x": -42, "z": 10.5, "name": "WEST SHORE" },
+    { "x": -6, "z": -46, "name": "NORTH BEACH" }
+  ],
+  "resolve": {
+    "clearance": 1.45,
+    "playerMinDistance": 5,
+    "searchRadius": 8,
+    "step": 0.5,
+    "angleSteps": 24,
+    "validateClearance": 1.1,
+    "playerClearance": 0.9,
+    "minCount": 18
+  }
+}

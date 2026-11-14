@@ -1,0 +1,17 @@
+{
+  "format": "sandstrike/map@2",
+  "id": "island-01",
+  "name": "ATOLL 09",
+  "subtitle": "碧潮环礁 · 第九区",
+  "description": "四面环水的热带孤岛：雨林深处藏着断裂的石塔与石像，南滩的茅草村落还留着渔火。坚守十五波，击破每五波降临的攻城督军。",
+  "bounds": { "minX": -70, "maxX": 70, "minZ": -70, "maxZ": 70 },
+  "playerSpawn": { "x": 0, "y": 0, "z": 46, "yaw": 0 },
+  "parts": {
+    "terrain": "terrain.json",
+    "environment": "environment.json",
+    "architecture": "architecture.json",
+    "props": "props.json",
+    "dressing": "dressing.json",
+    "spawns": "spawns.json"
+  }
+}

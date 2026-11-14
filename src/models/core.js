@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { lerp, smoothstep, makeRNG, canvasTexture } from '../utils.js';
+import { getFoliageDepthMaterial } from '../world/foliage-fx.js';
 
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
@@ -188,11 +189,18 @@ function rodBetween(ctx, key, ax, ay, az, bx, by, bz, r, radial = 6, tile = 1.4)
 /**
  * Bake cheap per-vertex AO / grime into a geometry as a color attribute.
  * Bright at the top, dirt-dark near the ground, subtle per-vertex noise.
+ *
+ * If the geometry already carries an authored `color` attribute (per-block stone tint,
+ * wet band, bleached driftwood…), the AO is MULTIPLIED into it instead of replacing it.
+ * Without this, the static batcher wiped every hand-authored tint at map build time and
+ * the in-game ruins/village looked uniform while the stage previews looked right
+ * (structures-report.md, risk a).
  */
 function bakeVertexAO(geo, { ground = 1.5, floor = 0.55, noise = 0.06, seed = 1 } = {}) {
   const pos = geo.attributes.position;
   const nor = geo.attributes.normal;
   const count = pos.count;
+  const tint = geo.attributes.color;
   const colors = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     const x = pos.getX(i);
@@ -204,9 +212,12 @@ function bakeVertexAO(geo, { ground = 1.5, floor = 0.55, noise = 0.06, seed = 1 
     if (ny > 0.6) ao = Math.min(1, ao + 0.06); // tops catch sun
     const n = (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed * 3.1) * 43758.5453) % 1;
     ao *= 1 - noise * Math.abs(n);
-    colors[i * 3] = ao;
-    colors[i * 3 + 1] = ao * (0.99 + noise * 0.15);
-    colors[i * 3 + 2] = ao * 0.96;
+    const r = tint ? tint.getX(i) : 1;
+    const g = tint ? tint.getY(i) : 1;
+    const b = tint ? tint.getZ(i) : 1;
+    colors[i * 3] = ao * r;
+    colors[i * 3 + 1] = ao * g * (0.99 + noise * 0.15);
+    colors[i * 3 + 2] = ao * b * 0.96;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geo;
@@ -474,6 +485,12 @@ function addArchMesh(ctx, a) {
 
 function makeInstanced(ctx, geo, material, items, name, surface, opts = {}) {
   if (items.length === 0) return null;
+  // A quality tier that trims every card out of one bucket leaves mergeGeometries() with
+  // an empty list and it returns null. An InstancedMesh built on a null geometry only
+  // explodes later, deep inside the renderer (Frustum.intersectsObject ->
+  // computeBoundingSphere: "Cannot read properties of null"), killing the whole boot.
+  // island-01 quality=lowest hit exactly that through the bamboo young-flush bucket.
+  if (!geo || !geo.attributes || !geo.attributes.position) return null;
   const mesh = new THREE.InstancedMesh(geo, material, items.length);
   mesh.name = name;
   const m = new THREE.Matrix4();
@@ -499,6 +516,12 @@ function makeInstanced(ctx, geo, material, items, name, surface, opts = {}) {
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   mesh.castShadow = opts.castShadow ?? true;
   mesh.receiveShadow = true;
+  // Leaf materials carry a wind displacement in their vertex shader; the shadow pass
+  // needs the same displacement or the canopy shadow would stay frozen while the
+  // leaves move (see src/world/foliage-fx.js).
+  if (material && material.userData && material.userData.foliageFx) {
+    mesh.customDepthMaterial = getFoliageDepthMaterial(material);
+  }
   mesh.userData.surface = surface;
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();

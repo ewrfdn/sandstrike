@@ -1,14 +1,30 @@
 import * as THREE from 'three';
-import { boxGeometryWorldUV, cylinderWorldUV } from '../core.js';
+import { boxGeometryWorldUV, cylinderWorldUV, transformed } from '../core.js';
 
-export const meta = { id: 'rpg-launcher', kind: 'world', group: 'weapon', label: 'RPG-7 · 火箭筒（手持）' };
+export const meta = {
+  id: 'rpg-launcher',
+  kind: 'world',
+  group: 'weapon',
+  label: 'RPG-7 · 火箭筒（设计稿）',
+  lift: true,
+  poses: ['bare', 'held'],
+  defaultPose: 'bare',
+};
 
 /**
- * RPG-7 style rocket launcher carried in first person: launch tube, wooden heat
- * shield, iron sights, grips, canvas sling, shoulder rest and a loaded PG-7
- * warhead, plus the gloved hands / sleeve stubs that hold it (no display stand).
- * Design study only: nothing places this in the map.
+ * RPG-7 style rocket launcher carried in first person, split into two half
+ * models that are only bound together in the held pose:
+ *
+ *   buildLauncher(ctx)    bare launcher geometry (tube, heat shield, sights,
+ *                         grips, sling, shoulder rest, loaded PG-7 warhead)
+ *   buildHeldHands(ctx)   gloved hands + sleeve stubs that hold it, built as a
+ *                         separate hidden group so the stage / game can choose
+ *                         the bare pose without dismembered arms in frame
+ *
+ * Design study only: nothing places this in the map (`buildWorld` keeps the
+ * launcher buildable for map assembly without arms; it is never placed).
  */
+
 function buildLauncher(ctx) {
   const UNIT = new THREE.Vector3(1, 1, 1);
   const _e = new THREE.Euler();
@@ -39,10 +55,6 @@ function buildLauncher(ctx) {
     ctx.batcher.add(key, g, _m);
     g.dispose();
   };
-
-  // ------------------------------------------------------------ held weapon
-  // (no display cradle: this is a first-person carried launcher; the gloved
-  // hands and sleeve stubs below sit where the player's arms would be)
 
   // ------------------------------------------------------------- the launcher
   const LY = 1.33;
@@ -86,9 +98,64 @@ function buildLauncher(ctx) {
   cyl('canvasDark', 0.105, 0.105, 0.44, 0, LY, -0.9, Math.PI / 2, 0, 0, 12, 0.9);
   cyl('canvasDark', 0.105, 0.004, 0.38, 0, LY, -1.3, Math.PI / 2, 0, 0, 12, 0.9);
   for (const z of [-0.72, -1.06]) cyl('rust', 0.109, 0.109, 0.028, 0, LY, z, Math.PI / 2, 0, 0, 12);
+}
+
+/**
+ * Gloved hands + sleeve stubs where the player's arms would be (held pose).
+ *
+ * These were previously batched into the world StaticBatcher together with the
+ * launcher, which made them impossible to hide independently.  They are now
+ * individual meshes in their own (hidden) group: same geometry, same
+ * transforms and same world-scaled UVs as the batched version (geometry is
+ * baked non-indexed exactly like StaticBatcher.add does), so the held pose
+ * renders identically while the bare pose can simply leave them invisible.
+ */
+function buildHeldHands(ctx) {
+  const group = new THREE.Group();
+  group.name = 'rpg-held-hands';
+  group.visible = false;
+  ctx.scene.add(group);
+
+  const UNIT = new THREE.Vector3(1, 1, 1);
+  const _e = new THREE.Euler();
+  const _q = new THREE.Quaternion();
+  const _v = new THREE.Vector3();
+  const _m = new THREE.Matrix4();
+
+  const mesh = (key, geo, matrix) => {
+    const material = ctx.materials && ctx.materials[key];
+    if (!material) throw new Error(`[rpg-launcher] missing material '${key}' for held hands`);
+    const baked = transformed(geo, matrix);
+    geo.dispose();
+    const out = new THREE.Mesh(baked, material);
+    out.castShadow = true;
+    out.receiveShadow = true;
+    group.add(out);
+    return out;
+  };
+  const box = (key, w, h, d, x, y, z, rx = 0, ry = 0, rz = 0, tile = 1.2) => {
+    _e.set(rx, ry, rz, 'YXZ');
+    _q.setFromEuler(_e);
+    _v.set(x, y, z);
+    _m.compose(_v, _q, UNIT);
+    mesh(key, boxGeometryWorldUV(w, h, d, tile), _m);
+  };
+  const rod = (key, ax, ay, az, bx, by, bz, radius, radial = 6) => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-4) return;
+    _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / len, dy / len, dz / len));
+    _v.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+    _m.compose(_v, _q, UNIT);
+    mesh(key, cylinderWorldUV(radius, radius, len, radial, 1.2), _m);
+  };
+
   // ---------------------------------------- gloved hands + sleeve stubs (held)
   // right hand wraps the pistol grip, left hand supports the foregrip; the
   // sleeve stubs drop back out of frame exactly like the other viewmodels
+  const LY = 1.33;
   box('dark', 0.1, 0.13, 0.13, 0.012, LY - 0.2, 0.27, -0.2);
   for (let i = 0; i < 4; i++) {
     box('dark', 0.022, 0.07, 0.06, -0.033 + i * 0.022, LY - 0.245, 0.315, -0.45);
@@ -106,14 +173,24 @@ function buildLauncher(ctx) {
   box('metalDark', 0.1, 0.06, 0.1, -0.01, LY - 0.28, -0.37, 0.16);
   rod('tarp', -0.01, LY - 0.3, -0.4, -0.16, LY - 0.72, 0.12, 0.068);
   rod('tarp', -0.04, LY - 0.4, -0.27, -0.16, LY - 0.72, 0.12, 0.078);
+
+  return group;
 }
 
-/** Preview builder (stage/WebUI): same builder as map assembly (design-only model). */
+/**
+ * Preview builder (stage/WebUI): bare launcher + hidden held hands.
+ * The stage toggles `poseGroups.held.visible` for the held pose ('bare' = all
+ * pose groups hidden, i.e. only the batched bare launcher is visible).
+ */
 export function build(ctx) {
-  buildWorld(ctx);
+  buildLauncher(ctx);
+  const handsGroup = buildHeldHands(ctx);
+  return { poseGroups: { bare: null, held: handsGroup } };
 }
 
-/** Map assembly builder: the launcher is never placed in the map, but must stay buildable. */
+/** Map assembly builder: the launcher is never placed in the map, but must stay buildable (bare weapon only). */
 export function buildWorld(ctx) {
   buildLauncher(ctx);
 }
+
+export { buildLauncher, buildHeldHands };

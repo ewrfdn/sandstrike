@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 
 /**
- * Development greybox fallback world. ONLY used with ?fallback=1 when src/world.js
- * is unavailable (e.g. during parallel build). The shipping game uses world.js.
+ * Development greybox fallback world. ONLY used with ?fallback=1 / ?world=dev when the
+ * real map pipeline (src/world/index.js + src/config/maps/) is unavailable. The shipping
+ * game always uses the data-driven world.
  */
 export async function createWorld(scene, renderer, { quality = 'high', onProgress } = {}) {
   const progress = (p, label) => onProgress?.(p, label);

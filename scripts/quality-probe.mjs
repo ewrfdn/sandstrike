@@ -377,9 +377,22 @@ function pageMobileQualityTarget() {
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom };
   };
+  const visible = (el) => {
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none' && style.pointerEvents !== 'none';
+  };
   const list = buttons.map((b) => ({ value: b.dataset.qualityValue, text: b.textContent.trim(), active: b.classList.contains('is-on'), ...rectOf(b) }));
   const doc = document.documentElement;
-  const targets = list.map((b) => ({ value: b.value, x: b.x + b.w / 2, y: b.y + b.h / 2, inView: b.x >= 0 && b.right <= innerWidth && b.y >= 0 && b.bottom <= innerHeight && b.w > 1 && b.h > 1 }));
+  // Campaign UI v2: the SYSTEM CONFIG panel starts collapsed. Hidden buttons keep
+  // layout geometry, so `inView` must also require the button to be actually
+  // visible / hit-testable (otherwise a tap lands on the menu behind it).
+  const targets = list.map((b, i) => ({
+    value: b.value,
+    x: b.x + b.w / 2,
+    y: b.y + b.h / 2,
+    visible: visible(buttons[i]),
+    inView: b.x >= 0 && b.right <= innerWidth && b.y >= 0 && b.bottom <= innerHeight && b.w > 1 && b.h > 1 && visible(buttons[i]),
+  }));
   return {
     exists: true,
     count: buttons.length,
@@ -1047,15 +1060,54 @@ async function stageTouch() {
       return;
     }
     const state = await currentState(pg);
+
+    // Campaign UI v2: SYSTEM CONFIG is a collapsed panel on the menu, so the
+    // quality buttons are visibility:hidden / pointer-events:none until it is
+    // opened. Open it with a real click first — the same path a mobile user
+    // takes — otherwise touchscreen.tap() at the button centre hits .menu-main.
+    let settingsOpened = { ok: false, reason: 'not attempted' };
+    try {
+      const openBtn = pg.locator('.screen--menu [data-action="focus-settings"]').first();
+      if (await openBtn.count()) {
+        await openBtn.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await openBtn.click({ timeout: 8000 });
+        settingsOpened = { ok: true, method: 'real-click' };
+      } else {
+        settingsOpened = { ok: false, reason: 'SYSTEM CONFIG [data-action="focus-settings"] missing' };
+      }
+    } catch (error) {
+      settingsOpened = { ok: false, method: 'dom-click-fallback', error: String(error?.message || error) };
+      await evalPage(() => {
+        const btn = document.querySelector('.screen--menu [data-action="focus-settings"]');
+        if (btn) btn.click();
+      }, undefined, pg).catch(() => {});
+    }
+    const settingsPanelOpen = await pg
+      .waitForFunction(
+        () => {
+          const panel = document.querySelector('.screen--menu [data-settings]');
+          if (!panel) return false;
+          const style = getComputedStyle(panel);
+          return panel.getAttribute('aria-hidden') !== 'true' && style.visibility !== 'hidden' && style.display !== 'none';
+        },
+        null,
+        { timeout: 6000, polling: 100 }
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!settingsPanelOpen) settingsOpened = { ...settingsOpened, ok: false, error: 'settings panel did not open' };
+    await sleep(350);
+
     const target = await evalPage(pageMobileQualityTarget, undefined, pg);
     const t = target.ok ? target.result : { exists: false, error: target.error };
     const fileLow = await shot('quality-mobile-low-844x390.png', pg);
     if (!t.exists) {
-      record('q-touch', '', 'FAIL', { reason: 'mobile menu has no [data-quality] group', state: compactSnapshot(state) });
+      record('q-touch', '', 'FAIL', { reason: 'mobile menu has no [data-quality] group', state: compactSnapshot(state), settingsOpened });
       record('q-mobile-layout', '', 'FAIL', { reason: 'mobile menu has no [data-quality] group', target: t });
       return;
     }
     const lowIssues = [];
+    if (!settingsPanelOpen) lowIssues.push('menu SYSTEM CONFIG panel did not open (quality buttons stay hidden)');
     if (state.quality !== 'low') lowIssues.push(`game.quality=${JSON.stringify(state.quality)} expected low`);
     if (!(Number.isFinite(state.pixelRatio) && Math.abs(state.pixelRatio - TOUCH_LOW_PIXEL_RATIO) <= 0.05)) {
       lowIssues.push(`pixelRatio=${JSON.stringify(state.pixelRatio)} expected ≈${TOUCH_LOW_PIXEL_RATIO}±0.05（DPR3 受 cap 限制）`);
@@ -1088,6 +1140,7 @@ async function stageTouch() {
     }
     record('q-touch', '', lowIssues.length === 0 ? 'PASS' : 'FAIL', {
       boot,
+      settingsOpened,
       state: compactSnapshot(state),
       target: { count: t.count, active: t.active, overflowX: t.overflowX, targets: t.targets },
       tap,

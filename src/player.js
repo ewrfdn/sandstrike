@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import { CONFIG } from './config/index.js';
 import { emit } from './bus.js';
 import { clamp, damp, rand } from './utils.js';
 
@@ -42,8 +42,14 @@ export class Player {
     this.virtualMove = { x: 0, forward: 0 };
     this.crouchHeld = false;
     this.sprintHeld = false;
+    /** Gamepad axes are tracked separately from touch so both can coexist. */
+    this.padMove = { x: 0, forward: 0 };
+    this.padSprintHeld = false;
+    this.padCrouchHeld = false;
     this.sensitivity = P.mouseSensitivity;
     this.aiming = false;
+    /** ADS field-of-view owned by the active weapon (WeaponSystem updates it). */
+    this.adsFov = CONFIG.weapon.adsFov;
     this.speedMultiplier = 1;
     this.sprinting = false;
     this.crouching = false;
@@ -144,8 +150,12 @@ export class Player {
     this._keys.clear();
     this.virtualMove.x = 0;
     this.virtualMove.forward = 0;
+    this.padMove.x = 0;
+    this.padMove.forward = 0;
     this.crouchHeld = false;
     this.sprintHeld = false;
+    this.padCrouchHeld = false;
+    this.padSprintHeld = false;
     this._jumpQueued = false;
     this.shakeTrauma = 0;
     this.landDip = 0;
@@ -188,6 +198,36 @@ export class Player {
   /** Held virtual sprint, OR-ed with the keyboard sprint keys. */
   setSprintHeld(held) {
     this.sprintHeld = !!held;
+  }
+
+  // --- Gamepad virtual input (GAMEPAD_SPEC.md §4) ---------------------------
+  // Tracked on separate fields from the touch joystick so a controller and a
+  // touch layer can both feed the same player without overwriting each other.
+
+  /** Gamepad left-stick axes: x = right positive, forward = forward positive. */
+  setPadMoveInput(x, forward) {
+    this.padMove.x = clamp(Number(x) || 0, -1, 1);
+    this.padMove.forward = clamp(Number(forward) || 0, -1, 1);
+  }
+
+  /** Held gamepad sprint (LB / L3), OR-ed with keyboard and touch sprint. */
+  setPadSprintHeld(held) {
+    this.padSprintHeld = !!held;
+  }
+
+  /** Held gamepad crouch toggle (B), OR-ed with keyboard and touch crouch. */
+  setPadCrouchHeld(held) {
+    this.padCrouchHeld = !!held;
+  }
+
+  /**
+   * Absolute look delta in radians, independent of mouse sensitivity.
+   * Gamepad look is rate-integrated by src/gamepad.js; this keeps the pitch
+   * clamp shared with the mouse path.
+   */
+  addLook(dYaw, dPitch) {
+    this.yaw += Number(dYaw) || 0;
+    this.lookPitch = clamp(this.lookPitch + (Number(dPitch) || 0), -P.maxPitch, P.maxPitch);
   }
 
   addRecoil(pitch, yaw) {
@@ -366,11 +406,14 @@ export class Player {
     // Virtual (touch) axes are additive with the keyboard so both coexist.
     inputX += this.virtualMove.x;
     inputZ -= this.virtualMove.forward;
+    // Gamepad axes are additive too, but tracked on their own fields.
+    inputX += this.padMove.x;
+    inputZ -= this.padMove.forward;
     inputX = clamp(inputX, -1, 1);
     inputZ = clamp(inputZ, -1, 1);
-    const wantsSprint = (this._isDown(KEY.sprint) || this.sprintHeld) && inputZ < 0 && !this.aiming;
+    const wantsSprint = (this._isDown(KEY.sprint) || this.sprintHeld || this.padSprintHeld) && inputZ < 0 && !this.aiming;
     this.sprinting = wantsSprint && this.grounded;
-    this.crouching = (this._isDown(KEY.crouch) || this.crouchHeld) && !this.sprinting;
+    this.crouching = (this._isDown(KEY.crouch) || this.crouchHeld || this.padCrouchHeld) && !this.sprinting;
 
     const targetHeight = this.crouching ? this.crouchHeight : this.standHeight;
     this.bodyHeight = damp(this.bodyHeight, targetHeight, 14, dt);
@@ -532,7 +575,7 @@ export class Player {
       Math.sin(this.walkPhase) * 0.0035 * this.bobAmount + shakeRoll
     );
     // subtle FOV breathing while sprinting
-    const targetFov = (this.aiming ? CONFIG.weapon.adsFov : CONFIG.renderer.fov) + (this.sprinting ? 1.8 : 0);
+    const targetFov = (this.aiming ? this.adsFov : CONFIG.renderer.fov) + (this.sprinting ? 1.8 : 0);
     this.camera.fov = damp(this.camera.fov, targetFov, 12, dt);
     this.camera.updateProjectionMatrix();
   }

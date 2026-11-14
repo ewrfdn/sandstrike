@@ -15,6 +15,11 @@ const QUALITY = ['medium', 'high', 'ultra'].includes(params.get('quality')) ? pa
 const GROUP_META = {
   clutter: '杂物 CLUTTER',
   hero: '主道具 HERO',
+  flora: '植被 FLORA',
+  village: '草村 VILLAGE',
+  ruin: '遗迹 RUINS',
+  shore: '海岸 SHORE',
+  loot: '掉落物 LOOT',
   architecture: '建筑 ARCHITECTURE',
   cloth: '布料 / 灯具 CLOTH & LIGHT',
   robots: '机器人 ROBOTS',
@@ -27,7 +32,11 @@ const VIEW_LABELS = {
   back: 'BACK',
   top: 'TOP',
 };
-const POSES = ['base', 'aim', 'walk'];
+// Pose labels per entry kind: robot chassis use BASE/AIM/WALK; weapons and held
+// props advertise BARE/HELD. The row itself is generated from the active
+// model's own `poses` list (exposed by the stage on window.__stage.models).
+const POSE_LABELS = { base: 'BASE', aim: 'AIM', walk: 'WALK', bare: 'BARE', held: 'HELD' };
+const poseLabel = (pose) => POSE_LABELS[pose] || String(pose).toUpperCase();
 
 const el = {
   viewer: document.getElementById('viewer'),
@@ -50,7 +59,9 @@ const state = {
   filterGroup: null,
   query: '',
   view: 'three-quarter',
-  pose: 'base',
+  pose: null,
+  activePoses: [],
+  loading: false,
   showToken: 0,
   lastStats: null,
   baseMeta: '',
@@ -175,6 +186,47 @@ function renderList() {
 // ---------------------------------------------------------------------------
 // Controls
 // ---------------------------------------------------------------------------
+/**
+ * Rebuild the POSE row from the active model's poses. Plain world props have no
+ * poses and get a single disabled placeholder; the disabled state always tracks
+ * the current selection so a stale button can never fire against another model.
+ */
+function renderPoseButtons(poses) {
+  const list = Array.isArray(poses) ? poses.slice() : [];
+  state.activePoses = list;
+  el.poseButtons.textContent = '';
+  if (!list.length) {
+    const none = document.createElement('button');
+    none.type = 'button';
+    none.className = 'pose-btn';
+    none.textContent = '—';
+    none.title = '该模型没有姿态';
+    none.disabled = true;
+    el.poseButtons.appendChild(none);
+    return list;
+  }
+  for (const pose of list) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pose-btn' + (pose === state.pose ? ' on' : '');
+    button.textContent = poseLabel(pose);
+    button.dataset.pose = pose;
+    button.disabled = false;
+    button.addEventListener('click', () => setPose(pose));
+    el.poseButtons.appendChild(button);
+  }
+  return list;
+}
+
+/** Sync state.pose + the "on"/disabled state of the POSE row after a stage call. */
+function syncPoseButtons(pose) {
+  state.pose = pose || null;
+  el.poseButtons.querySelectorAll('.pose-btn').forEach((button) => {
+    button.classList.toggle('on', !!state.pose && button.dataset.pose === state.pose);
+    button.disabled = !button.dataset.pose || !state.activePoses.includes(button.dataset.pose);
+  });
+}
+
 function buildControls() {
   const api = stage();
   const views = (api && api.views) || Object.keys(VIEW_LABELS);
@@ -188,17 +240,7 @@ function buildControls() {
     button.addEventListener('click', () => setView(view));
     el.viewButtons.appendChild(button);
   }
-  el.poseButtons.textContent = '';
-  for (const pose of POSES) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'pose-btn' + (pose === state.pose ? ' on' : '');
-    button.textContent = pose.toUpperCase();
-    button.dataset.pose = pose;
-    button.disabled = true;
-    button.addEventListener('click', () => setPose(pose));
-    el.poseButtons.appendChild(button);
-  }
+  renderPoseButtons(state.activePoses);
   const reset = document.createElement('button');
   reset.type = 'button';
   reset.className = 'view-btn';
@@ -254,12 +296,13 @@ function setView(view) {
 function setPose(pose) {
   const api = stage();
   if (!api || !api.current || !api.current()) return;
-  if (!state.activeIsRobot) return;
+  if (state.loading || !state.activePoses.includes(pose)) return;
   state.pose = pose;
   el.poseButtons.querySelectorAll('.pose-btn').forEach((b) => b.classList.toggle('on', b.dataset.pose === pose));
   try {
     const stats = api.setPose(pose);
     updateInfo(stats);
+    if (stats && stats.pose) syncPoseButtons(stats.pose);
     if (api.orbitState) onCameraChange(api.orbitState());
   } catch (error) {
     showError(error);
@@ -297,13 +340,15 @@ async function selectModel(id, { replaceUrl = true } = {}) {
   if (!model) return;
   const token = ++state.showToken;
   state.activeId = id;
-  state.activeIsRobot = model.kind === 'robot';
-  state.pose = model.kind === 'robot' ? model.defaultPose || 'base' : 'base';
+  state.loading = true;
+  const poses = Array.isArray(model.poses) ? model.poses.slice() : [];
+  const fallbackPose = model.defaultPose && poses.includes(model.defaultPose) ? model.defaultPose : poses[0];
+  state.pose = poses.length ? fallbackPose : null;
   el.list.querySelectorAll('.item').forEach((item) => item.classList.toggle('on', item.dataset.id === id));
-  el.poseButtons.querySelectorAll('.pose-btn').forEach((button) => {
-    button.disabled = !state.activeIsRobot;
-    button.classList.toggle('on', state.activeIsRobot && button.dataset.pose === state.pose);
-  });
+  renderPoseButtons(poses);
+  // Disabled until the stage has actually swapped the model: clicking a pose
+  // mid-swap would apply it to the previous model.
+  el.poseButtons.querySelectorAll('.pose-btn').forEach((button) => { button.disabled = true; });
   el.infoName.textContent = 'LOADING…';
   el.infoMeta.textContent = model.id;
   if (replaceUrl) {
@@ -318,20 +363,23 @@ async function selectModel(id, { replaceUrl = true } = {}) {
     if (token !== state.showToken) return;
     let stats;
     try {
-      stats = await api.show(id, { pose: state.pose, view: state.view });
+      stats = await api.show(id, { pose: state.pose || undefined, view: state.view });
     } catch (error) {
       if (token !== state.showToken) return;
+      state.loading = false;
       showError(error);
       return;
     }
     if (token !== state.showToken) return;
+    state.loading = false;
     updateInfo(stats);
     if (api.orbitState) onCameraChange(api.orbitState());
-    if (!state.activeIsRobot) {
-      el.poseButtons.querySelectorAll('.pose-btn').forEach((button) => { button.disabled = true; });
-    }
+    if (stats && stats.pose) syncPoseButtons(stats.pose);
   } catch (error) {
-    if (token === state.showToken) showError(error);
+    if (token === state.showToken) {
+      state.loading = false;
+      showError(error);
+    }
   }
 }
 
@@ -356,9 +404,10 @@ function bindKeys() {
     if (event.key === 'ArrowDown' || event.key === 'ArrowRight') { event.preventDefault(); cycleModel(1); }
     else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') { event.preventDefault(); cycleModel(-1); }
     else if (event.key === 'p' || event.key === 'P') {
-      if (!state.activeIsRobot) return;
-      const index = POSES.indexOf(state.pose);
-      setPose(POSES[(index + 1) % POSES.length]);
+      const poses = state.activePoses;
+      if (!poses.length) return;
+      const index = Math.max(0, poses.indexOf(state.pose));
+      setPose(poses[(index + 1) % poses.length]);
     } else if (event.key >= '1' && event.key <= '5') {
       const api = stage();
       const views = (api && api.views) || Object.keys(VIEW_LABELS);

@@ -2,16 +2,25 @@
  * SANDSTRIKE // 沙暴协议
  * src/enemies.js — hostile robot chassis, squad AI, combat and the fifteen-wave director.
  *
- * Owner: robot-combat.  Public contract: see TEAM_SPEC.md ("src/enemies.js").
+ * Owner: boss-waves.  Public contract: see .scratch/features/CONTRACT.md (§7).
  *
  * Exports:
  *   class EnemyManager {
- *     constructor({ scene, world, effects, audio, getPlayer, quality })
+ *     constructor({ scene, world, effects, audio, getPlayer, quality,
+ *                   stageId, difficulty, getOwnedWeapons })
  *     raycastTargets   // THREE.Object3D[] — hitbox meshes, userData.robot + userData.zone
- *     state            // { wave, totalWaves, alive, remaining, betweenWaves }
+ *     state            // { wave, totalWaves, alive, remaining, betweenWaves, stageId, difficulty }
  *     start() reset() update(dt, elapsed) damage(object, amount, opts) dispose()
+ *     setStage(stageId) setDifficulty(idOrObject) getStage() getDifficulty()
+ *     damageArea(center, radius, amount, opts)   // RPG splash → falloff damage
+ *     spawnBoss()      // dev/QA: materialise the SIEGE WARDEN immediately
  *     debugKillAll()   // QA helper: instantly clears the active wave
  *   }
+ *
+ * Wave compositions are NOT hardcoded here anymore: src/config/waves.js owns the
+ * stage wave list + the boss-wave rule (every 5th wave spawns ROBOT_TYPES.boss
+ * and strips the warlord). Difficulty (src/config/difficulty.js) only scales
+ * enemy hp at spawn and the damage robots deal to the player.
  *
  * Everything is built from procedural primitives (shared geometries, merged per material),
  * navigated with an A* grid derived from world.collisionBoxes, and animated procedurally.
@@ -20,7 +29,11 @@
 import * as THREE from 'three';
 import { emit } from './bus.js';
 import { clamp, lerp, damp, dampAngle, angleDelta, rand, randInt, choice, smoothstep } from './utils.js';
-import { CONFIG } from './config.js';
+import { CONFIG } from './config/index.js';
+import { DEFAULT_STAGE_ID } from './config/stages.js';
+import { DEFAULT_DIFFICULTY_ID, getDifficulty } from './config/difficulty.js';
+import { WAVE_RULES, expandComposition, resolveWave, wavesForStage } from './config/waves.js';
+import { WEAPON_ORDER, getWeaponStats } from './config/weapons.js';
 import {
   ROBOT_TYPES,
   TYPE_KEYS,
@@ -30,6 +43,13 @@ import {
   createUnitGeos,
   disposeUnitGeos,
 } from './models/robots/index.js';
+import {
+  LOOT_KINDS,
+  LOOT_KIND_MODULES,
+  createLootGeometries,
+  createLootMaterials,
+} from './models/loot/index.js';
+import { createWeaponPickup, getWeaponType } from './models/weapons/index.js';
 
 /* ================================================================== *
  *  0. Constants & micro helpers
@@ -37,13 +57,22 @@ import {
 
 const TAU = Math.PI * 2;
 const WORLD_BOUNDS = (CONFIG.world && CONFIG.world.bounds) || { minX: -34, maxX: 34, minZ: -34, maxZ: 34 };
-const TOTAL_WAVES = (CONFIG.waves && CONFIG.waves.total) || 5;
+const TOTAL_WAVES = (WAVE_RULES && WAVE_RULES.total) || (CONFIG.waves && CONFIG.waves.total) || 15;
 const BETWEEN_TIME = (CONFIG.waves && CONFIG.waves.betweenTime) || 6.5;
 const FIRST_DELAY = (CONFIG.waves && CONFIG.waves.firstDelay) || 2.2;
 const HEADSHOT_MULT = (CONFIG.weapon && CONFIG.weapon.headshotMultiplier) || 2.3;
 const LIMB_MULT = (CONFIG.weapon && CONFIG.weapon.limbMultiplier) || 0.72;
 /** Independent bonus-drop table (chances/effects live in config.js). */
 const LOOT = CONFIG.loot || {};
+
+/** Weapon drops: hard cap of live drops on the ground and their idle lifetime. */
+const WEAPON_DROP_LIMIT = 4;
+const WEAPON_DROP_LIFETIME = 90;
+/** Player must get this close to a dropped weapon for it to be collected. */
+const WEAPON_DROP_PICKUP_RADIUS = 2.0;
+/** Boss weapon drop roll knobs (config-driven; see CONFIG.loot in config/game.js). */
+const BOSS_DROP_CHANCE = typeof LOOT.bossWeaponDropChance === 'number' ? LOOT.bossWeaponDropChance : 0.05;
+const BOSS_DROP_COUNT = typeof LOOT.bossWeaponDropCount === 'number' ? LOOT.bossWeaponDropCount : 1;
 
 const IS_DEV = (() => {
   try {
@@ -110,26 +139,8 @@ function easeInCubic(t) {
  * ================================================================== */
 
 /* ================================================================== *
- *  1. Wave script
+ *  1. Wave script — authored in src/config/waves.js (read-only config)
  * ================================================================== */
-
-const WAVE_STAGES = [
-  { comp: { scout: 4 }, label: 'SCOUT SWEEP // 侦察清扫' },
-  { comp: { scout: 4, rifleman: 2 }, label: 'RIFLE TEAM // 步枪分队' },
-  { comp: { scout: 3, rifleman: 3, heavy: 2 }, label: 'HEAVY CONTACT // 重装接触' },
-  { comp: { scout: 2, rifleman: 4, heavy: 4 }, label: 'SIEGE LINE // 围攻阵线' },
-  { comp: { scout: 3, rifleman: 4, heavy: 4, warlord: 1 }, label: 'WARLORD // 监军降临' },
-  { comp: { scout: 4, rifleman: 4, heavy: 3 }, label: 'COUNTERATTACK // 敌军反扑' },
-  { comp: { scout: 3, rifleman: 6, heavy: 4 }, label: 'SHOCK WAVE // 冲击波次' },
-  { comp: { scout: 4, rifleman: 6, heavy: 4 }, label: 'ATTRITION // 消耗战' },
-  { comp: { scout: 2, rifleman: 8, heavy: 6 }, label: 'SIEGE ESCALATION // 围攻升级' },
-  { comp: { rifleman: 6, heavy: 6, warlord: 1 }, label: 'WARLORD II // 双刃监军' },
-  { comp: { scout: 4, rifleman: 6, heavy: 6 }, label: 'IRON RAIN // 钢铁弹雨' },
-  { comp: { scout: 4, rifleman: 8, heavy: 6 }, label: 'DEAD GROUND // 死亡地带' },
-  { comp: { scout: 3, rifleman: 8, heavy: 8 }, label: 'LAST LINE // 最后防线' },
-  { comp: { scout: 4, rifleman: 8, heavy: 8 }, label: 'FINAL PUSH // 最终冲锋' },
-  { comp: { rifleman: 8, heavy: 8, warlord: 1 }, label: 'OMEGA WARLORD // 终焉监军' },
-];
 
 function waveMods(wave) {
   const k = clamp(wave - 1, 0, TOTAL_WAVES - 1);
@@ -144,31 +155,87 @@ function waveMods(wave) {
   };
 }
 
-function stageCount(stage) {
-  let n = 0;
-  for (const key in stage.comp) n += stage.comp[key];
-  return n;
+/** True for the SIEGE WARDEN (or any future chassis flagged `boss: true`). */
+function isBossDef(def) {
+  return !!(def && (def.boss === true || def.key === 'boss'));
 }
 
-/** Expand a wave composition into a spawn order (bigger chassis materialise later). */
-function buildSpawnOrder(stage) {
-  const order = [];
-  const heavyFirst = [];
-  for (const key of TYPE_KEYS) {
-    const count = stage.comp[key] || 0;
-    for (let i = 0; i < count; i++) {
-      if (key === 'heavy' || key === 'warlord') heavyFirst.push(key);
-      else order.push(key);
-    }
-  }
-  // shuffle lights a little; bosses/heavies spawn at the back of the queue for drama
-  for (let i = order.length - 1; i > 0; i--) {
+/** "SIEGE WARDEN // 攻城督军" → { en: 'SIEGE WARDEN', cn: '攻城督军' }. */
+function splitDisplayName(def) {
+  const raw = String((def && (def.displayName || def.name)) || 'BOSS');
+  const parts = raw.split('//');
+  const en = (parts[0] || raw).trim() || 'BOSS';
+  const cn = (parts[1] || '').trim() || en;
+  return { en, cn };
+}
+
+/**
+ * Localised boss notice text derived from the chassis display name (no hardcoded
+ * boss strings in the director):
+ *   spawn → "SIEGE WARDEN DEPLOYED // 攻城督军降临"
+ *   kill  → "SIEGE WARDEN DESTROYED // 攻城督军击破"
+ */
+function bossNotice(def, kind) {
+  const { en, cn } = splitDisplayName(def);
+  return kind === 'spawn' ? `${en} DEPLOYED // ${cn}降临` : `${en} DESTROYED // ${cn}击破`;
+}
+
+/** In-place Fisher–Yates shuffle (wave start only, not a hot path). */
+function shuffleInPlace(list) {
+  for (let i = list.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    const tmp = order[i];
-    order[i] = order[j];
-    order[j] = tmp;
+    const tmp = list[i];
+    list[i] = list[j];
+    list[j] = tmp;
   }
-  return order.concat(heavyFirst);
+  return list;
+}
+
+/**
+ * Turn a resolved wave composition (`{ comp, label, boss, ... }` from
+ * config/waves.js `resolveWave`) into a spawn order:
+ *   normal — lights shuffled up front, heavies/warlords at the back
+ *   boss   — boss chassis LAST (the director adds WAVE_RULES.bossSpawnDelay)
+ * Unknown chassis keys are ignored defensively.
+ */
+function buildSpawnOrder(resolved) {
+  const keys = expandComposition((resolved && resolved.comp) || {});
+  const lights = [];
+  const heavies = [];
+  const bosses = [];
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const def = ROBOT_TYPES[key];
+    if (!def) continue;
+    if (isBossDef(def)) bosses.push(key);
+    else if (key === 'heavy' || key === 'warlord') heavies.push(key);
+    else lights.push(key);
+  }
+  shuffleInPlace(lights);
+  return {
+    normal: lights.concat(heavies),
+    boss: bosses,
+    total: lights.length + heavies.length + bosses.length,
+  };
+}
+
+/**
+ * Normalise a difficulty argument: config id string, config tier object, or a
+ * custom `{ id, hpMul, dmgMul }` patch. Always returns a tier object with
+ * numeric hpMul/dmgMul.
+ */
+function resolveDifficultyTier(value) {
+  const fallback = getDifficulty(DEFAULT_DIFFICULTY_ID);
+  if (value == null) return fallback;
+  if (typeof value === 'string') return getDifficulty(value);
+  if (typeof value === 'object') {
+    const tier = getDifficulty(value.id || value.difficulty || DEFAULT_DIFFICULTY_ID);
+    const hpMul = typeof value.hpMul === 'number' && isFinite(value.hpMul) ? value.hpMul : tier.hpMul;
+    const dmgMul = typeof value.dmgMul === 'number' && isFinite(value.dmgMul) ? value.dmgMul : tier.dmgMul;
+    if (hpMul === tier.hpMul && dmgMul === tier.dmgMul && (value.id || value.difficulty) === tier.id) return tier;
+    return { ...tier, hpMul, dmgMul, id: tier.id };
+  }
+  return fallback;
 }
 
 /* ================================================================== *
@@ -462,6 +529,10 @@ class Robot {
     this.laser = rig.laser || null;
     this.radius = this.def.radius;
     this.height = this.def.height;
+    /** Boss chassis reuse every AI/FX path; only scale/duration/event branches differ. */
+    this._isBoss = isBossDef(this.def);
+    /** Telegraph beam thickness (the boss projects a much fatter sight line). */
+    this._laserWidth = this._isBoss ? 0.048 : this.def.key === 'warlord' ? 0.024 : 0.016;
     this.pos = this.root.position;
     this.vel = new THREE.Vector3();
     this._eyeWorld = new THREE.Vector3();
@@ -648,7 +719,7 @@ class Robot {
     if (this.losTimer <= 0) {
       this.los = this.mgr.checkLOS(this);
       const key = this.def.key;
-      this.losTimer = (key === 'scout' ? 0.16 : key === 'heavy' || key === 'warlord' ? 0.24 : 0.2) + Math.random() * 0.08;
+      this.losTimer = (key === 'scout' ? 0.16 : key === 'heavy' || key === 'warlord' || this._isBoss ? 0.24 : 0.2) + Math.random() * 0.08;
       if (this.los) {
         const p = this.mgr._player;
         this.lastKnownX = p.x;
@@ -1116,7 +1187,9 @@ class Robot {
     );
     _TMP.q1.setFromUnitVectors(UP, this._shotNormal);
     this.laser.quaternion.copy(_TMP.q1);
-    this.laser.scale.set(0.016, visibleLen, 0.016);
+    // The boss projects a fat siege sight line so its charge-up reads from across
+    // the map; smaller chassis use a thin beam.
+    this.laser.scale.set(this._laserWidth, visibleLen, this._laserWidth);
     this.laser.visible = true;
   }
 
@@ -1234,11 +1307,11 @@ class Robot {
 
     mgr._fx('tracer', this._muzzleWorld, this._shotEnd, {
       color: this.def.palette.tracer,
-      width: this.def.key === 'warlord' ? 0.045 : 0.03,
+      width: this._isBoss ? 0.075 : this.def.key === 'warlord' ? 0.045 : 0.03,
       duration: 0.07,
     });
     mgr._fx('muzzleFlash', this._muzzleWorld, this._shotDir, {
-      scale: this.def.key === 'heavy' || this.def.key === 'warlord' ? 1.5 : 1.0,
+      scale: this._isBoss ? 2.2 : this.def.key === 'heavy' || this.def.key === 'warlord' ? 1.5 : 1.0,
       color: this.def.palette.visor,
     });
     mgr._audio('enemyShot', dist, mgr.panFor(this._muzzleWorld.x, this._muzzleWorld.z));
@@ -1268,6 +1341,7 @@ class Robot {
 
     this.hp -= dmg;
     this.damageFlash = 1;
+    if (this._isBoss) mgr._onBossDamaged(this);
     const heavyHit = headshot || dmg > 20;
     const staggerAdd = (headshot ? 0.55 : heavyHit ? 0.34 : 0.16) * (1 - (this.def.staggerResist || 0));
     this.stagger = Math.max(this.stagger, staggerAdd);
@@ -1331,12 +1405,12 @@ class Robot {
     if (this.laser) this.laser.visible = false;
     this.deathT = 0;
     const key = this.def.key;
-    this.deathDuration = key === 'warlord' ? 3.6 : key === 'heavy' ? 2.6 : key === 'rifleman' ? 2.1 : 1.9;
+    this.deathDuration = this._isBoss ? 4.4 : key === 'warlord' ? 3.6 : key === 'heavy' ? 2.6 : key === 'rifleman' ? 2.1 : 1.9;
     this.deathFall = Math.random() < 0.74 ? 1 : -1;
     this.deathTwist = rand(-0.6, 0.6);
     this.deathSecondary = 0;
     this._deathFade = false;
-    this.rig.mats.glow.color.setScalar(2.4);
+    this.rig.mats.glow.color.setScalar(this._isBoss ? 3.2 : 2.4);
   }
 
   _updateDeath(dt) {
@@ -1350,9 +1424,21 @@ class Robot {
 
     if (k > 0.2 && this.deathSecondary === 0) {
       this.deathSecondary = 1;
-      this.mgr._deathBurst(this, 0.65);
+      this.mgr._deathBurst(this, this._isBoss ? 1.7 : 0.65);
     }
-    if (k > 0.5 && this.deathSecondary === 1 && (this.def.key === 'heavy' || this.def.key === 'warlord')) {
+    if (this._isBoss) {
+      // Siege chassis cooks off in a rolling chain of secondary explosions.
+      if (k > 0.36 && this.deathSecondary === 1) {
+        this.deathSecondary = 2;
+        this.mgr._deathBurst(this, 1.15);
+      } else if (k > 0.56 && this.deathSecondary === 2) {
+        this.deathSecondary = 3;
+        this.mgr._deathBurst(this, 1.45);
+      } else if (k > 0.76 && this.deathSecondary === 3) {
+        this.deathSecondary = 4;
+        this.mgr._deathBurst(this, 0.95);
+      }
+    } else if (k > 0.5 && this.deathSecondary === 1 && (this.def.key === 'heavy' || this.def.key === 'warlord')) {
       this.deathSecondary = 2;
       this.mgr._deathBurst(this, 0.45);
     }
@@ -1415,12 +1501,14 @@ class Robot {
   }
 
   _updateSpawn(dt) {
-    const dur = this.def.key === 'warlord' ? 1.2 : this.def.key === 'heavy' ? 0.9 : 0.7;
+    const dur = this._isBoss ? 2.1 : this.def.key === 'warlord' ? 1.2 : this.def.key === 'heavy' ? 0.9 : 0.7;
     this.spawnT = clamp(this.spawnT + dt / dur, 0, 1);
     const e = easeOutCubic(this.spawnT);
     const M = this.def.model;
-    this.root.scale.setScalar(0.22 + 0.78 * e);
-    this.root.position.y = -0.45 * (1 - e);
+    // The siege chassis warps in from a tighter scale so its entrance reads bigger.
+    const fromScale = this._isBoss ? 0.12 : 0.22;
+    this.root.scale.setScalar(fromScale + (1 - fromScale) * e);
+    this.root.position.y = (this._isBoss ? -0.7 : -0.45) * (1 - e);
     this.parts.pelvis.position.y = M.hipY + (1 - e) * 0.08;
     this.parts.torso.rotation.z = Math.sin(this.spawnT * 42) * 0.05 * (1 - e);
     this.parts.head.rotation.y = Math.sin(this.spawnT * 29) * 0.14 * (1 - e);
@@ -1452,7 +1540,17 @@ class Robot {
  * ================================================================== */
 
 class EnemyManager {
-  constructor({ scene, world, effects, audio, getPlayer, quality = 'high' } = {}) {
+  constructor({
+    scene,
+    world,
+    effects,
+    audio,
+    getPlayer,
+    quality = 'high',
+    stageId = DEFAULT_STAGE_ID,
+    difficulty = DEFAULT_DIFFICULTY_ID,
+    getOwnedWeapons = null,
+  } = {}) {
     this.scene = scene || null;
     this.world = world || {};
     this.effects = effects || null;
@@ -1460,7 +1558,21 @@ class EnemyManager {
     this.getPlayer = typeof getPlayer === 'function' ? getPlayer : () => null;
     this.quality = quality || 'high';
 
-    this.state = { wave: 0, totalWaves: TOTAL_WAVES, alive: 0, remaining: 0, betweenWaves: false };
+    // Wave table + difficulty are selected by main.js (startStage) before start().
+    this._stageId = typeof stageId === 'string' && stageId ? stageId : DEFAULT_STAGE_ID;
+    this._difficulty = resolveDifficultyTier(difficulty);
+    /** Optional provider → string[] of weapon ids the player already owns (boss drops). */
+    this._ownedWeaponProvider = typeof getOwnedWeapons === 'function' ? getOwnedWeapons : null;
+
+    this.state = {
+      wave: 0,
+      totalWaves: this._waveCount(),
+      alive: 0,
+      remaining: 0,
+      betweenWaves: false,
+      stageId: this._stageId,
+      difficulty: this._difficulty.id,
+    };
     this.raycastTargets = [];
     this.robots = [];
     this.time = 0;
@@ -1535,6 +1647,18 @@ class EnemyManager {
     this._pickupGeos = null;
     this._pickupMats = null;
 
+    // Boss weapon drops — real weapon world models (createWeaponPickup), floaty
+    // light-column presentation, hard cap + lifetime, disposed on reset/dispose.
+    this._weaponDrops = [];
+    this._weaponDropCoreGeo = null;
+    this._weaponDropColumnGeo = null;
+    this._weaponDropColumnMat = null;
+    this._weaponDropCoreMat = null;
+
+    // Boss bookkeeping: rate-limited boss:health emits (≤10 Hz) + spawn wave.
+    this._bossHealthAt = -1;
+    this._bossSpawnWave = 0;
+
     this._radarAccum = 0;
     this._radarEnemies = [];
     this._radarPlayer = { x: 0, z: 0, yaw: 0 };
@@ -1563,6 +1687,38 @@ class EnemyManager {
     this._emitRadar();
   }
 
+  /* ---------------- stage / difficulty selection ---------------- */
+
+  /** Wave count of the active stage's wave list (config driven). */
+  _waveCount() {
+    const list = wavesForStage(this._stageId);
+    const n = list && list.length ? list.length : 0;
+    return n > 0 ? n : TOTAL_WAVES;
+  }
+
+  /** Switch the wave table. main.js calls this before start(). */
+  setStage(stageId) {
+    this._stageId = typeof stageId === 'string' && stageId ? stageId : DEFAULT_STAGE_ID;
+    this.state.stageId = this._stageId;
+    this.state.totalWaves = this._waveCount();
+    return this._stageId;
+  }
+
+  getStage() {
+    return this._stageId;
+  }
+
+  /** Pick a difficulty tier (config id or tier/patch object). Applies from the next spawn. */
+  setDifficulty(value) {
+    this._difficulty = resolveDifficultyTier(value);
+    this.state.difficulty = this._difficulty.id;
+    return this._difficulty;
+  }
+
+  getDifficulty() {
+    return this._difficulty;
+  }
+
   reset() {
     this._running = false;
     while (this.robots.length) this._retireRobot(this.robots[this.robots.length - 1]);
@@ -1581,10 +1737,12 @@ class EnemyManager {
       slot.light.intensity = 0;
     }
     this.state.wave = 0;
-    this.state.totalWaves = TOTAL_WAVES;
+    this.state.totalWaves = this._waveCount();
     this.state.alive = 0;
     this.state.remaining = 0;
     this.state.betweenWaves = false;
+    this.state.stageId = this._stageId;
+    this.state.difficulty = this._difficulty.id;
     this._phase = 'idle';
     this._phaseTimer = 0;
     this._nextCountdownSecond = -1;
@@ -1592,6 +1750,9 @@ class EnemyManager {
     this._tokenLimit = 2;
     this._pathBudget = 0;
     this._spawnUse.clear();
+    this._clearWeaponDrops();
+    this._bossHealthAt = -1;
+    this._bossSpawnWave = 0;
     this.time = 0;
     this._score = 0;
     this._combo = 0;
@@ -1664,6 +1825,7 @@ class EnemyManager {
     }
 
     this._updatePickups(dt);
+    this._updateWeaponDrops(dt);
     this._updateLights(dt);
     this._updateRadar(dt);
     this._syncState();
@@ -1675,6 +1837,88 @@ class EnemyManager {
     const robot = this._resolveRobot(object);
     if (!robot) return 0;
     return robot.takeDamage(amount, opts || {}, object);
+  }
+
+  /**
+   * AoE damage for explosive weapons (RPG). Applies linear falloff damage to
+   * every live robot inside `radius` and routes it through robot.takeDamage()
+   * so kills go through the exact same path as hitscan hits.
+   *
+   * @param {{x:number,y?:number,z:number}} center explosion centre (world)
+   * @param {number} radius splash radius in metres
+   * @param {number} amount damage at the centre (already includes direct-hit damage)
+   * @param {{splashFalloff?:number, point?:object, direction?:object, weapon?:string}} [opts]
+   * @returns {number} number of robots that actually took damage
+   */
+  damageArea(center, radius, amount, opts = {}) {
+    if (this._disposed || !center) return 0;
+    const r = Math.max(0.05, Number(radius) || 0);
+    const base = Number(amount) || 0;
+    if (base <= 0) return 0;
+    const falloff = clamp(typeof opts.splashFalloff === 'number' ? opts.splashFalloff : 0.5, 0, 1);
+    const cx = Number(center.x) || 0;
+    const cy = Number(center.y) || 0;
+    const cz = Number(center.z) || 0;
+    const optsPoint = opts.point;
+    const optsDirection = opts.direction;
+    let hits = 0;
+    for (let i = 0; i < this.robots.length; i++) {
+      const robot = this.robots[i];
+      if (!robot || !robot.alive) continue;
+      if (robot.state === 'spawn' || robot.state === 'dying' || robot.state === 'dead') continue;
+      const dx = robot.pos.x - cx;
+      const dz = robot.pos.z - cz;
+      const dist = Math.hypot(dx, dz);
+      if (dist > r) continue;
+      // Linear falloff from full damage at the centre to (1 - splashFalloff) at
+      // the rim; the floor keeps rim hits meaningful (RPG splashFalloff 0.5 → 50%).
+      const scale = Math.max(0.25, 1 - falloff * (dist / r));
+      const point = optsPoint && typeof optsPoint.x === 'number'
+        ? optsPoint
+        : { x: robot.pos.x - (dist > 1e-4 ? (dx / dist) * Math.min(robot.radius, 0.6) : 0), y: cy, z: robot.pos.z - (dist > 1e-4 ? (dz / dist) * Math.min(robot.radius, 0.6) : 0) };
+      const direction = optsDirection && typeof optsDirection.x === 'number'
+        ? optsDirection
+        : { x: dist > 1e-4 ? dx / dist : 0, y: 0, z: dist > 1e-4 ? dz / dist : 0 };
+      const dealt = robot.takeDamage(base * scale, { point, direction, headshot: false, weapon: opts.weapon || 'explosive' }, null);
+      if (dealt > 0) hits++;
+    }
+    return hits;
+  }
+
+  /**
+   * Spawn the SIEGE WARDEN immediately (dev/QA + possible scripted boss cues).
+   * Uses the dedicated open-ground boss spawn search so the oversized chassis
+   * never materialises inside geometry.
+   */
+  spawnBoss() {
+    if (this._disposed) return null;
+    const key = WAVE_RULES.bossType || 'boss';
+    const def = ROBOT_TYPES[key];
+    if (!def) return null;
+    this._ensureWorld();
+    const point = this._selectBossSpawnPoint(def) || this._selectSpawnPoint(def);
+    if (!point) return null;
+    this._bossSpawnWave = this.state.wave || 1;
+    const robot = this._spawnRobotAt(def, point);
+    return robot;
+  }
+
+  /**
+   * Force one weapon drop next to the player (dev hook; bypasses the boss death
+   * roll + ownership roll). Returns the weapon type id that was dropped, or null
+   * when the model type is not registered (e.g. weapon-models still building it).
+   */
+  dropWeapon(typeId, x, z) {
+    if (this._disposed) return null;
+    const type = typeId || this._pickWeaponDropType() || WEAPON_ORDER[0];
+    if (typeof x !== 'number' || typeof z !== 'number') {
+      // Drop it right in front of the player so QA collection is deterministic.
+      const p = this._player;
+      const yaw = p.yaw || 0;
+      x = (p.alive ? p.x : 0) - Math.sin(yaw) * 1.3;
+      z = (p.alive ? p.z : 0) - Math.cos(yaw) * 1.3;
+    }
+    return this._spawnWeaponDrop(type, x, z) ? type : null;
   }
 
   /** QA helper: kill everything currently on the field and clear pending spawns. */
@@ -1694,14 +1938,24 @@ class EnemyManager {
     return count;
   }
 
-  /** QA helper: jump straight to a wave (1..5) without the intermission. */
+  /** QA helper: jump straight to a wave without the intermission. */
   debugJumpToWave(wave) {
     if (this._disposed) return;
-    const n = clamp(Math.round(wave || 1), 1, TOTAL_WAVES);
+    const n = clamp(Math.round(wave || 1), 1, this._waveCount());
     this.reset();
     this._ensureWorld();
     this._running = true;
     this._beginWave(n);
+  }
+
+  /* Aliases consumed by main.js dev hooks (window.__sandstrike.*). */
+
+  debugSpawnBoss() {
+    return this.spawnBoss();
+  }
+
+  debugDropWeapon(type) {
+    return this.dropWeapon(type);
   }
 
   dispose() {
@@ -1736,6 +1990,15 @@ class EnemyManager {
       for (const key in this._pickupMats) this._pickupMats[key].dispose();
       this._pickupMats = null;
     }
+    this._clearWeaponDrops();
+    if (this._weaponDropColumnGeo) this._weaponDropColumnGeo.dispose();
+    if (this._weaponDropCoreGeo) this._weaponDropCoreGeo.dispose();
+    if (this._weaponDropColumnMat) this._weaponDropColumnMat.dispose();
+    if (this._weaponDropCoreMat) this._weaponDropCoreMat.dispose();
+    this._weaponDropColumnGeo = null;
+    this._weaponDropCoreGeo = null;
+    this._weaponDropColumnMat = null;
+    this._weaponDropCoreMat = null;
     for (let i = 0; i < this._lights.length; i++) {
       const slot = this._lights[i];
       if (this.scene) this.scene.remove(slot.light);
@@ -2080,7 +2343,9 @@ class EnemyManager {
   _applyPlayerDamage(robot, amount, fromPos) {
     const p = this._player;
     if (!p.alive) return;
-    const amt = Math.max(1, Math.round(amount));
+    // Difficulty scales the damage robots deal to the player (never speed/accuracy).
+    const dmgMul = this._difficulty && typeof this._difficulty.dmgMul === 'number' ? this._difficulty.dmgMul : 1;
+    const amt = Math.max(1, Math.round(amount * dmgMul));
     emit('combat:player-hit', {
       amount: amt,
       source: 'robot',
@@ -2104,30 +2369,42 @@ class EnemyManager {
   }
 
   _beginWave(wave) {
-    const n = clamp(wave, 1, TOTAL_WAVES);
-    const stage = WAVE_STAGES[n - 1];
-    if (!stage) return;
+    const totalWaves = this._waveCount();
+    const n = clamp(Math.round(wave || 1), 1, totalWaves);
+    // Config-driven composition + boss synthesis rule (WAVE_RULES in config/waves.js).
+    const resolved = resolveWave(this._stageId, n);
     this._waveMods = waveMods(n);
+    // Difficulty scales enemy hp at spawn (boss included); speed/accuracy untouched.
+    this._waveMods.hp *= this._difficulty && typeof this._difficulty.hpMul === 'number' ? this._difficulty.hpMul : 1;
     this._tokenLimit = this._waveMods.tokens;
     this._tokensUsed = 0;
     this._spawnUse.clear();
-    const order = buildSpawnOrder(stage);
+
+    const order = buildSpawnOrder(resolved);
     this._spawnQueue.length = 0;
     let at = 0.05;
-    for (let i = 0; i < order.length; i++) {
-      const key = order[i];
-      if (i > 0) {
-        at += key === 'warlord' ? 1.0 : key === 'heavy' ? 0.55 : rand(0.22, 0.48);
-      }
+    for (let i = 0; i < order.normal.length; i++) {
+      const key = order.normal[i];
+      if (i > 0) at += key === 'warlord' ? 1.0 : key === 'heavy' ? 0.55 : rand(0.22, 0.48);
       this._spawnQueue.push({ type: key, at: this.time + at });
     }
+    // Boss steps in LAST, a beat after the escorts have materialised.
+    const bossDelay = WAVE_RULES.bossSpawnDelay >= 0 ? WAVE_RULES.bossSpawnDelay : 1.4;
+    for (let i = 0; i < order.boss.length; i++) {
+      at += (i === 0 ? bossDelay : 1.2);
+      this._spawnQueue.push({ type: order.boss[i], at: this.time + at });
+    }
+
     this.state.wave = n;
     this.state.betweenWaves = false;
-    this.state.remaining = order.length;
+    this.state.remaining = order.total;
     this._phase = 'spawning';
-    emit('wave:start', { wave: n, totalWaves: TOTAL_WAVES, count: order.length, label: stage.label });
+    emit('wave:start', { wave: n, totalWaves, count: order.total, label: resolved.label });
     this._audio('waveStart', n);
-    if (stage.comp.warlord) {
+    if (resolved.boss) {
+      // Boss entrance cue; the full SEIGE WARDEN notice fires when it materialises.
+      emit('fx:shake', { intensity: 0.55, duration: 0.7 });
+    } else if (resolved.comp && resolved.comp.warlord) {
       emit('fx:shake', { intensity: 0.45, duration: 0.55 });
       emit('weapon:notice', { text: 'WARLORD DEPLOYED // 监军已部署', type: 'warn' });
     }
@@ -2152,7 +2429,7 @@ class EnemyManager {
         this._phase = 'done';
         this.state.alive = 0;
         this.state.remaining = 0;
-        emit('combat:all-waves-cleared', { wave: TOTAL_WAVES });
+        emit('combat:all-waves-cleared', { wave: this._waveCount() });
       }
     }
   }
@@ -2169,17 +2446,30 @@ class EnemyManager {
   _spawnRobot(type) {
     const def = ROBOT_TYPES[type];
     if (!def) return;
-    const point = this._selectSpawnPoint(def);
+    const point = isBossDef(def) ? this._selectBossSpawnPoint(def) : this._selectSpawnPoint(def);
     if (!point) {
       this._spawnQueue.unshift({ type, at: this.time + 0.5 });
       if (this._spawnQueue.length > 32) this._spawnQueue.length = 0;
       return;
     }
+    this._spawnRobotAt(def, point);
+  }
+
+  /** Instantiate one robot of `def` at an already chosen spawn point. */
+  _spawnRobotAt(def, point) {
+    this._bringWorldOnline();
+    const type = def.key;
     const rig = this._acquireRig(type);
     const robot = new Robot(this, type, rig);
-    robot.spawn(point.x, point.z, this.state.wave, this._waveMods);
+    robot.spawn(point.x, point.z, this.state.wave || 1, this._waveMods);
     this.robots.push(robot);
     this.stats.robotsSpawned++;
+    return robot;
+  }
+
+  /** Make navigation / LOS data available even when the director has not started. */
+  _bringWorldOnline() {
+    if (!this._navBuilt) this._ensureWorld();
   }
 
   _selectSpawnPoint(def) {
@@ -2240,6 +2530,80 @@ class EnemyManager {
     return best;
   }
 
+  /**
+   * Dedicated spawn search for the oversized boss chassis (radius 1.35): the
+   * normal selection only guarantees the chassis centre cell is free, which lets
+   * a 5 m siege walker materialise half inside cover. This samples a clearance
+   * ring around every spawn candidate, prefers open ground ~20 m from the
+   * player, and falls back to the normal selection when nothing qualifies.
+   */
+  _selectBossSpawnPoint(def) {
+    const points = this._spawnPoints;
+    const p = this._player;
+    const nav = this._navLight || this.navFor(def.radius);
+    if (!points.length) return this._selectSpawnPoint(def);
+    const clearance = (def.radius || 1.35) + 0.1;
+    let best = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const sp = points[i];
+      if (nav && !nav.freeAt(sp.x, sp.z)) continue;
+      const dp = dist2D(sp.x, sp.z, p.x, p.z);
+      if (p.alive && dp < 10) continue; // never drop the boss on top of the player
+      let open = !this._pointBlocked(sp.x, sp.z, clearance);
+      if (open && nav) {
+        for (let a = 0; a < 8; a++) {
+          const ang = (a / 8) * TAU;
+          const x = sp.x + Math.cos(ang) * clearance;
+          const z = sp.z + Math.sin(ang) * clearance;
+          if (!nav.freeAt(x, z) || this._pointBlocked(x, z, 0.35)) {
+            open = false;
+            break;
+          }
+        }
+      }
+      if (!open) continue;
+      const used = this._spawnUse.get(i) || 0;
+      // Open-ground bias: a wide ring plus a comfortable 17-26 m approach.
+      const score = -Math.abs(dp - 21) * 1.2 - used * 10 + rand(0, 4);
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: sp.x, z: sp.z, idx: i };
+      }
+    }
+    if (!best) {
+      // Relax: any spawn at least 10 m from the player (still not inside a wall).
+      for (let i = 0; i < points.length; i++) {
+        const sp = points[i];
+        if (nav && !nav.freeAt(sp.x, sp.z)) continue;
+        if (p.alive && dist2D(sp.x, sp.z, p.x, p.z) < 10) continue;
+        best = { x: sp.x, z: sp.z, idx: i };
+        break;
+      }
+    }
+    if (!best) return this._selectSpawnPoint(def);
+    if (best.idx >= 0) this._spawnUse.set(best.idx, (this._spawnUse.get(best.idx) || 0) + 1);
+    return best;
+  }
+
+  /** True when a circle of `margin` around (x,z) overlaps a tall collision box. */
+  _pointBlocked(x, z, margin) {
+    const boxes = this._nearbyBoxes(x, z);
+    for (let i = 0; i < boxes.length; i++) {
+      const box = boxes[i];
+      const minY = typeof box.minY === 'number' ? box.minY : 0;
+      const maxY = typeof box.maxY === 'number' ? box.maxY : 4;
+      if (maxY <= 0.18) continue; // floor decoration
+      if (minY >= 1.9) continue; // overhead only
+      const closestX = clamp(x, box.minX, box.maxX);
+      const closestZ = clamp(z, box.minZ, box.maxZ);
+      const dx = x - closestX;
+      const dz = z - closestZ;
+      if (dx * dx + dz * dz < margin * margin) return true;
+    }
+    return false;
+  }
+
   _aliveCount() {
     let n = 0;
     for (let i = 0; i < this.robots.length; i++) if (this.robots[i].alive) n++;
@@ -2248,14 +2612,15 @@ class EnemyManager {
 
   _clearWave() {
     const n = this.state.wave;
+    const totalWaves = this._waveCount();
     this._phase = 'clearing';
     this.state.betweenWaves = true;
-    const bonus = 150 * n + (n === TOTAL_WAVES ? 1000 : 0);
+    const bonus = 150 * n + (n === totalWaves ? 1000 : 0);
     this._score += bonus;
-    emit('wave:clear', { wave: n, totalWaves: TOTAL_WAVES, nextIn: n < TOTAL_WAVES ? BETWEEN_TIME : 0, bonus });
+    emit('wave:clear', { wave: n, totalWaves, nextIn: n < totalWaves ? BETWEEN_TIME : 0, bonus });
     emit('score:change', { score: this._score, combo: this._combo, multiplier: 1 });
     this._audio('waveClear');
-    if (n >= TOTAL_WAVES) {
+    if (n >= totalWaves) {
       this._phase = 'victory-delay';
       this._phaseTimer = 2.2;
       this._tokensUsed = 0;
@@ -2293,30 +2658,37 @@ class EnemyManager {
     emit('score:change', { score: this._score, combo: this._combo, multiplier: +mult.toFixed(2) });
     this.stats.deaths++;
     this._audio('kill');
-    const scale = robot.def.key === 'warlord' ? 3.0 : robot.def.key === 'heavy' ? 1.7 : 1.05;
-    this._fx('explosion', new THREE.Vector3(pos.x, centerY, pos.z), { scale, color: robot.def.palette.tracer });
-    this._fx('dustBurst', new THREE.Vector3(pos.x, 0.25, pos.z), { count: 12, scale: 1.1 });
+    const def = robot.def;
+    const boss = isBossDef(def);
+    const scale = boss ? 4.6 : def.key === 'warlord' ? 3.0 : def.key === 'heavy' ? 1.7 : 1.05;
+    this._fx('explosion', new THREE.Vector3(pos.x, centerY, pos.z), { scale, color: def.palette.tracer });
+    this._fx('dustBurst', new THREE.Vector3(pos.x, 0.25, pos.z), { count: boss ? 26 : 12, scale: boss ? 2.2 : 1.1 });
     this._audio('explosion', scale);
-    this._flashLight(pos.x, robot.height * 0.5, pos.z, robot.def.palette.tracer,
-      robot.def.key === 'warlord' ? 55 : 26, 0.35);
-    if (robot.def.key === 'heavy' || robot.def.key === 'warlord') {
+    this._flashLight(pos.x, robot.height * 0.5, pos.z, def.palette.tracer,
+      boss ? 85 : def.key === 'warlord' ? 55 : 26, boss ? 0.65 : 0.35);
+    if (boss || def.key === 'heavy' || def.key === 'warlord') {
       emit('fx:shake', {
-        intensity: robot.def.key === 'warlord' ? 0.6 : 0.22,
-        duration: robot.def.key === 'warlord' ? 0.55 : 0.25,
+        intensity: boss ? 0.95 : def.key === 'warlord' ? 0.6 : 0.22,
+        duration: boss ? 0.9 : def.key === 'warlord' ? 0.55 : 0.25,
       });
     }
-    if (robot.def.boss) {
-      emit('fx:hitflash', { strength: 0.45, color: 0xffc27a });
-      emit('weapon:notice', { text: 'WARLORD ELIMINATED // 监军击破', type: 'info' });
+    if (boss) {
+      const displayName = def.displayName || def.name;
+      emit('fx:hitflash', { strength: 0.6, color: 0xffc27a });
+      // Final health tick at 0 so the HUD bar empties exactly on death.
+      emit('boss:health', { hp: 0, maxHp: robot.maxHp, fraction: 0 });
+      emit('boss:defeated', { name: def.name, displayName, wave: this.state.wave });
+      emit('weapon:notice', { text: bossNotice(def, 'kill'), type: 'info' });
     }
     this._dropPickupsFor(robot);
   }
 
   _deathBurst(robot, scale) {
+    const spread = Math.max(0.55, robot.radius * 1.15);
     const pos = new THREE.Vector3(
-      robot.pos.x + rand(-0.55, 0.55),
+      robot.pos.x + rand(-spread, spread),
       Math.max(0.3, robot.pos.y + rand(0.4, robot.height * 0.75)),
-      robot.pos.z + rand(-0.55, 0.55),
+      robot.pos.z + rand(-spread, spread),
     );
     this._fx('explosion', pos, { scale, color: robot.def.palette.tracer });
     this._fx('sparks', pos, this._upVec, { count: 8, color: robot.def.palette.visor, speed: 6 });
@@ -2324,24 +2696,67 @@ class EnemyManager {
     this._flashLight(pos.x, pos.y, pos.z, robot.def.palette.tracer, 16, 0.2);
   }
 
+  /* ---------------- boss events ---------------- */
+
+  /** Rate-limited (≤10 Hz) boss health tick; call on every damage application. */
+  _onBossDamaged(robot) {
+    const now = this.time;
+    if (now - this._bossHealthAt < 0.1) return;
+    this._bossHealthAt = now;
+    const maxHp = robot.maxHp || 1;
+    emit('boss:health', {
+      hp: Math.max(0, Math.round(robot.hp)),
+      maxHp,
+      fraction: clamp(robot.hp / maxHp, 0, 1),
+    });
+  }
+
+  /** The live SIEGE WARDEN (or null) — dev hook + boss HUD helper. */
+  _findBoss() {
+    for (let i = 0; i < this.robots.length; i++) {
+      const robot = this.robots[i];
+      if (robot && robot.alive && isBossDef(robot.def)) return robot;
+    }
+    return null;
+  }
+
   _onRobotSpawn(robot) {
     const def = robot.def;
+    const boss = isBossDef(def);
     const pos = new THREE.Vector3(robot.pos.x, 0.05, robot.pos.z);
     this._fx('teleport', pos, {
       color: def.palette.visor,
-      scale: def.key === 'warlord' ? 2.4 : def.key === 'heavy' ? 1.6 : 1.1,
+      scale: boss ? 3.6 : def.key === 'warlord' ? 2.4 : def.key === 'heavy' ? 1.6 : 1.1,
     });
     this._audio('teleport');
-    this._flashLight(robot.pos.x, 1.4, robot.pos.z, def.palette.visor, def.key === 'warlord' ? 48 : 26, def.boss ? 0.8 : 0.45);
+    this._flashLight(robot.pos.x, boss ? 2.2 : 1.4, robot.pos.z, def.palette.visor,
+      boss ? 70 : def.key === 'warlord' ? 48 : 26, boss ? 1.05 : 0.45);
+    if (boss) {
+      // Boss HUD contract: announce the full pool once, at materialisation.
+      const maxHp = robot.maxHp || def.hp;
+      this._bossSpawnWave = this.state.wave || this._bossSpawnWave;
+      this._bossHealthAt = this.time;
+      emit('boss:spawn', {
+        name: def.name,
+        displayName: def.displayName || def.name,
+        wave: this._bossSpawnWave,
+        hp: maxHp,
+        maxHp,
+      });
+      emit('boss:health', { hp: maxHp, maxHp, fraction: 1 });
+      emit('weapon:notice', { text: bossNotice(def, 'spawn'), type: 'warn' });
+      emit('fx:shake', { intensity: 0.75, duration: 0.8 });
+    }
   }
 
   _onSpawnComplete(robot) {
+    const boss = isBossDef(robot.def);
     this._fx('dustBurst', new THREE.Vector3(robot.pos.x, 0.2, robot.pos.z), {
-      count: 10,
-      scale: Math.max(0.9, robot.radius * 1.8),
+      count: boss ? 26 : 10,
+      scale: Math.max(0.9, robot.radius * (boss ? 2.6 : 1.8)),
     });
     this._audio('robotStep', dist2D(robot.pos.x, robot.pos.z, this._player.x, this._player.z));
-    if (robot.def.boss) emit('fx:shake', { intensity: 0.5, duration: 0.6 });
+    if (boss) emit('fx:shake', { intensity: 0.7, duration: 0.6 });
   }
 
   _onTelegraph(robot) {
@@ -2477,184 +2892,30 @@ class EnemyManager {
 
   /* ---------------- pickups ---------------- */
 
+  /**
+   * Drop-item models live in src/models/loot/ (one file per kind) so the dev
+   * model viewer previews exactly what the game drops. The manager owns this
+   * fresh geometry/material set and disposes it with the system.
+   */
   _initPickups() {
-    this._pickupGeos = {
-      ammoBody: new THREE.BoxGeometry(0.42, 0.32, 0.32),
-      ammoLid: new THREE.BoxGeometry(0.34, 0.07, 0.26),
-      ammoStripe: new THREE.BoxGeometry(0.44, 0.05, 0.34),
-      healthBody: new THREE.CylinderGeometry(0.16, 0.2, 0.38, 10),
-      healthRing: new THREE.TorusGeometry(0.21, 0.028, 6, 14),
-      // magazine upgrade: a tall curved mag + band
-      magBody: new THREE.BoxGeometry(0.2, 0.46, 0.16),
-      magBand: new THREE.BoxGeometry(0.24, 0.06, 0.2),
-      magTip: new THREE.CylinderGeometry(0.05, 0.05, 0.1, 8),
-      // damage upgrade: a glowing core in a caged frame
-      powerCore: new THREE.OctahedronGeometry(0.15, 0),
-      powerCage: new THREE.IcosahedronGeometry(0.24, 0),
-      powerRing: new THREE.TorusGeometry(0.26, 0.02, 6, 18),
-      // reload-speed upgrade: stopwatch bezel + bolt
-      reloadDisc: new THREE.CylinderGeometry(0.17, 0.17, 0.06, 16),
-      reloadRing: new THREE.TorusGeometry(0.2, 0.028, 8, 22),
-      reloadBolt: new THREE.BoxGeometry(0.05, 0.2, 0.05),
-      // rare relic: tall golden prism inside two rings
-      relicCore: new THREE.OctahedronGeometry(0.22, 0),
-      relicRingA: new THREE.TorusGeometry(0.3, 0.022, 8, 24),
-      relicRingB: new THREE.TorusGeometry(0.24, 0.016, 8, 20),
-      relicBeam: new THREE.CylinderGeometry(0.05, 0.16, 1.6, 10, 1, true),
-      // damage-reduction guard: hexagonal shield plate + glowing core + halo
-      guardPlate: new THREE.CylinderGeometry(0.27, 0.31, 0.06, 6),
-      guardCore: new THREE.IcosahedronGeometry(0.11, 0),
-      guardRing: new THREE.TorusGeometry(0.33, 0.02, 6, 20),
-      // max-health vital core: green orb inside a cross frame
-      vitalOrb: new THREE.SphereGeometry(0.15, 12, 10),
-      vitalCrossA: new THREE.BoxGeometry(0.07, 0.34, 0.07),
-      vitalCrossB: new THREE.BoxGeometry(0.34, 0.07, 0.07),
-      vitalRing: new THREE.TorusGeometry(0.28, 0.02, 6, 20),
-    };
-    this._pickupMats = {
-      body: new THREE.MeshStandardMaterial({ color: 0x2c2b27, metalness: 0.72, roughness: 0.48 }),
-      magMetal: new THREE.MeshStandardMaterial({ color: 0x384049, metalness: 0.85, roughness: 0.32 }),
-      ammo: new THREE.MeshBasicMaterial({ color: 0xffb347, toneMapped: false }),
-      health: new THREE.MeshBasicMaterial({ color: 0x59f0c8, toneMapped: false }),
-      mag: new THREE.MeshBasicMaterial({ color: 0x7cc8ff, toneMapped: false }),
-      power: new THREE.MeshBasicMaterial({ color: 0xff5a3c, toneMapped: false }),
-      reload: new THREE.MeshBasicMaterial({ color: 0xc084ff, toneMapped: false }),
-      relic: new THREE.MeshBasicMaterial({ color: 0xffe27a, toneMapped: false }),
-      relicBeam: new THREE.MeshBasicMaterial({
-        color: 0xffd062, transparent: true, opacity: 0.28, side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
-      }),
-      guard: new THREE.MeshBasicMaterial({ color: 0x66e2ff, toneMapped: false }),
-      guardPlate: new THREE.MeshStandardMaterial({ color: 0x27343c, metalness: 0.9, roughness: 0.28 }),
-      vital: new THREE.MeshBasicMaterial({ color: 0xa6ff5e, toneMapped: false }),
-      vitalFrame: new THREE.MeshStandardMaterial({ color: 0x2d3a24, metalness: 0.78, roughness: 0.36 }),
-      powerCage: new THREE.MeshStandardMaterial({
-        color: 0x40464e, metalness: 0.8, roughness: 0.35, transparent: true, opacity: 0.55,
-      }),
-    };
+    this._pickupGeos = createLootGeometries();
+    this._pickupMats = createLootMaterials();
   }
 
   _createPickupItem() {
-    const geos = this._pickupGeos;
-    const mats = this._pickupMats;
+    const lib = { geos: this._pickupGeos, mats: this._pickupMats };
     const group = new THREE.Group();
-    const ammoBody = new THREE.Mesh(geos.ammoBody, mats.body);
-    const ammoLid = new THREE.Mesh(geos.ammoLid, mats.body);
-    ammoLid.position.y = 0.18;
-    const ammoStripe = new THREE.Mesh(geos.ammoStripe, mats.ammo);
-    ammoStripe.position.y = -0.06;
-    group.add(ammoBody, ammoLid, ammoStripe);
-    const healthBody = new THREE.Mesh(geos.healthBody, mats.body);
-    const healthRing = new THREE.Mesh(geos.healthRing, mats.health);
-    healthRing.rotation.x = Math.PI / 2;
-    healthRing.position.y = 0.12;
-    group.add(healthBody, healthRing);
-    // --- magazine capacity loot: stacked extended mags ---
-    const magParts = [];
-    const magBody = new THREE.Mesh(geos.magBody, mats.magMetal);
-    magBody.rotation.z = 0.12;
-    group.add(magBody);
-    magParts.push(magBody);
-    for (let i = 0; i < 2; i++) {
-      const band = new THREE.Mesh(geos.magBand, mats.mag);
-      band.position.set(0, -0.1 + i * 0.24, 0);
-      band.rotation.z = 0.12;
-      group.add(band);
-      magParts.push(band);
+    const meshesByKind = {};
+    for (let i = 0; i < LOOT_KINDS.length; i++) {
+      const kind = LOOT_KINDS[i];
+      meshesByKind[kind] = LOOT_KIND_MODULES[kind].buildItem(group, lib);
     }
-    const magTip = new THREE.Mesh(geos.magTip, mats.mag);
-    magTip.position.set(0.02, 0.26, 0);
-    magTip.rotation.z = 0.12;
-    group.add(magTip);
-    magParts.push(magTip);
-    // --- damage loot: glowing core inside a wireframe cage ---
-    const powerParts = [];
-    const powerCore = new THREE.Mesh(geos.powerCore, mats.power);
-    group.add(powerCore);
-    powerParts.push(powerCore);
-    const powerCage = new THREE.Mesh(geos.powerCage, mats.powerCage);
-    powerCage.scale.setScalar(1.1);
-    group.add(powerCage);
-    powerParts.push(powerCage);
-    const powerRing = new THREE.Mesh(geos.powerRing, mats.power);
-    powerRing.rotation.x = Math.PI / 2.4;
-    group.add(powerRing);
-    powerParts.push(powerRing);
-    // --- reload speed loot: stopwatch dial with a bolt hand ---
-    const reloadParts = [];
-    const reloadDisc = new THREE.Mesh(geos.reloadDisc, mats.magMetal);
-    reloadDisc.rotation.x = Math.PI / 2.2;
-    group.add(reloadDisc);
-    reloadParts.push(reloadDisc);
-    const reloadRing = new THREE.Mesh(geos.reloadRing, mats.reload);
-    reloadRing.rotation.x = Math.PI / 2.2;
-    group.add(reloadRing);
-    reloadParts.push(reloadRing);
-    const reloadBolt = new THREE.Mesh(geos.reloadBolt, mats.reload);
-    reloadBolt.position.set(0, 0.02, 0.06);
-    reloadBolt.rotation.set(Math.PI / 2.2, 0, 0.5);
-    group.add(reloadBolt);
-    reloadParts.push(reloadBolt);
-    // --- rare relic: golden prism + rotating rings + light column ---
-    const relicParts = [];
-    const relicCore = new THREE.Mesh(geos.relicCore, mats.relic);
-    relicCore.scale.set(1, 1.35, 1);
-    group.add(relicCore);
-    relicParts.push(relicCore);
-    const relicRingA = new THREE.Mesh(geos.relicRingA, mats.relic);
-    relicRingA.rotation.x = Math.PI / 2.4;
-    group.add(relicRingA);
-    relicParts.push(relicRingA);
-    const relicRingB = new THREE.Mesh(geos.relicRingB, mats.relic);
-    relicRingB.rotation.set(Math.PI / 2, 0, 0.6);
-    group.add(relicRingB);
-    relicParts.push(relicRingB);
-    const relicBeam = new THREE.Mesh(geos.relicBeam, mats.relicBeam);
-    relicBeam.position.y = 0.55;
-    group.add(relicBeam);
-    relicParts.push(relicBeam);
-    // --- damage-reduction guard: hex shield plate with a glowing core/halo ---
-    const guardParts = [];
-    const guardPlate = new THREE.Mesh(geos.guardPlate, mats.guardPlate);
-    guardPlate.rotation.x = Math.PI / 2;
-    group.add(guardPlate);
-    guardParts.push(guardPlate);
-    const guardCore = new THREE.Mesh(geos.guardCore, mats.guard);
-    group.add(guardCore);
-    guardParts.push(guardCore);
-    const guardRing = new THREE.Mesh(geos.guardRing, mats.guard);
-    guardRing.rotation.x = Math.PI / 2.6;
-    group.add(guardRing);
-    guardParts.push(guardRing);
-    // --- max-health vital core: green cross frame around a glowing orb ---
-    const vitalParts = [];
-    const vitalOrb = new THREE.Mesh(geos.vitalOrb, mats.vitalFrame);
-    group.add(vitalOrb);
-    vitalParts.push(vitalOrb);
-    const vitalCrossA = new THREE.Mesh(geos.vitalCrossA, mats.vital);
-    group.add(vitalCrossA);
-    vitalParts.push(vitalCrossA);
-    const vitalCrossB = new THREE.Mesh(geos.vitalCrossB, mats.vital);
-    vitalCrossB.rotation.z = Math.PI / 2;
-    group.add(vitalCrossB);
-    vitalParts.push(vitalCrossB);
-    const vitalRing = new THREE.Mesh(geos.vitalRing, mats.vital);
-    vitalRing.rotation.x = Math.PI / 2.8;
-    group.add(vitalRing);
-    vitalParts.push(vitalRing);
     group.visible = false;
     group.position.set(0, -60, 0);
     if (this.scene) this.scene.add(group);
     return {
       group,
-      ammoMeshes: [ammoBody, ammoLid, ammoStripe],
-      healthMeshes: [healthBody, healthRing],
-      magMeshes: magParts,
-      powerMeshes: powerParts,
-      reloadMeshes: reloadParts,
-      relicMeshes: relicParts,
-      guardMeshes: guardParts,
-      vitalMeshes: vitalParts,
+      meshesByKind,
       active: false,
       kind: 'ammo',
       baseY: 0.42,
@@ -2691,22 +2952,12 @@ class EnemyManager {
     item.group.position.set(x, item.baseY, z);
     item.group.rotation.y = item.spin;
     item.group.visible = true;
-    const showAmmo = kind === 'ammo';
-    const showHealth = kind === 'health';
-    const showMag = kind === 'mag';
-    const showPower = kind === 'power';
-    const showReload = kind === 'reload';
-    const showGuard = kind === 'guard';
-    const showVital = kind === 'vital';
-    for (let i = 0; i < item.ammoMeshes.length; i++) item.ammoMeshes[i].visible = showAmmo;
-    for (let i = 0; i < item.healthMeshes.length; i++) item.healthMeshes[i].visible = showHealth;
-    for (let i = 0; i < item.magMeshes.length; i++) item.magMeshes[i].visible = showMag;
-    for (let i = 0; i < item.powerMeshes.length; i++) item.powerMeshes[i].visible = showPower;
-    for (let i = 0; i < item.reloadMeshes.length; i++) item.reloadMeshes[i].visible = showReload;
-    for (let i = 0; i < item.guardMeshes.length; i++) item.guardMeshes[i].visible = showGuard;
-    for (let i = 0; i < item.vitalMeshes.length; i++) item.vitalMeshes[i].visible = showVital;
-    const showRelic = kind === 'relic';
-    for (let i = 0; i < item.relicMeshes.length; i++) item.relicMeshes[i].visible = showRelic;
+    const meshesByKind = item.meshesByKind;
+    for (const name in meshesByKind) {
+      const meshes = meshesByKind[name];
+      const show = name === kind;
+      for (let i = 0; i < meshes.length; i++) meshes[i].visible = show;
+    }
   }
 
   _despawnPickup(item) {
@@ -2735,13 +2986,15 @@ class EnemyManager {
     if (Math.random() < (LOOT.vitalChance ?? 0.05)) {
       this._spawnPickup('vital', pos.x + rand(-1.1, 1.1), pos.z + rand(-1.1, 1.1));
     }
-    if (key === 'warlord') {
-      // the boss always leaves a full care package
+    if (key === 'warlord' || isBossDef(robot.def)) {
+      // The wave boss always leaves a full care package (warlord retained for
+      // any non-boss wave list that still fields one).
       this._spawnPickup('health', pos.x - 1.0, pos.z + 0.4);
       this._spawnPickup('ammo', pos.x + 1.0, pos.z + 0.4);
       this._spawnPickup('mag', pos.x - 0.2, pos.z - 1.4);
       this._spawnPickup('power', pos.x + 1.6, pos.z - 0.6);
       this._spawnPickup('reload', pos.x - 1.6, pos.z - 0.6);
+      if (isBossDef(robot.def)) this._rollBossWeaponDrop(pos);
       return;
     }
     const roll = Math.random();
@@ -2770,7 +3023,7 @@ class EnemyManager {
     const kind = item.kind;
     const pos = item.group.position;
     const sparkColor = kind === 'ammo' ? 0xffb347
-      : kind === 'health' ? 0x59f0c8
+      : kind === 'health' ? 0x4fc3ff
         : kind === 'mag' ? 0x7cc8ff
           : kind === 'reload' ? 0xc084ff
             : kind === 'relic' ? 0xffe27a
@@ -2858,6 +3111,196 @@ class EnemyManager {
     }
   }
 
+  /* ---------------- weapon drops (boss loot) ---------------- */
+
+  /**
+   * Optional hook: pick which weapon type a boss drop should contain.
+   * Defaults to a random type from WEAPON_ORDER that the player does not own yet
+   * (falls back to any type when all four are owned, and skips weapon types whose
+   * model module is not registered yet — weapon-models adds them in parallel).
+   * main.js can override this method on the instance if it wants different logic.
+   */
+  _pickWeaponDropType() {
+    let owned = EMPTY_ARRAY;
+    if (this._ownedWeaponProvider) {
+      try {
+        const list = this._ownedWeaponProvider();
+        if (Array.isArray(list)) owned = list;
+      } catch (_) {
+        owned = EMPTY_ARRAY;
+      }
+    }
+    const ownedSet = new Set(owned);
+    let candidates = WEAPON_ORDER.filter((id) => !ownedSet.has(id));
+    if (!candidates.length) candidates = WEAPON_ORDER.slice();
+    const available = candidates.filter((id) => this._isWeaponTypeRegistered(id));
+    if (!available.length) return null;
+    return available[Math.floor(Math.random() * available.length)];
+  }
+
+  _isWeaponTypeRegistered(typeId) {
+    try {
+      getWeaponType(typeId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** Boss death roll: CONFIG.loot.bossWeaponDropChance once, then N weapon drops. */
+  _rollBossWeaponDrop(pos) {
+    const count = clamp(Math.round(BOSS_DROP_COUNT || 0), 0, WEAPON_DROP_LIMIT);
+    if (count <= 0) return 0;
+    if (!(Math.random() < BOSS_DROP_CHANCE)) return 0; // the 95% case: no weapon
+    let spawned = 0;
+    for (let i = 0; i < count; i++) {
+      const typeId = this._pickWeaponDropType();
+      if (!typeId) break;
+      const ang = rand(0, TAU);
+      const dist = rand(1.4, 2.6);
+      const x = pos.x + Math.sin(ang) * dist;
+      const z = pos.z + Math.cos(ang) * dist;
+      if (this._spawnWeaponDrop(typeId, x, z)) spawned++;
+    }
+    if (spawned) emit('weapon:notice', { text: '武器掉落 // WEAPON DROP DETECTED', type: 'warn' });
+    return spawned;
+  }
+
+  /** Lazy shared FX resources for weapon drops (light column + core beam). */
+  _initWeaponDropFx() {
+    if (this._weaponDropColumnGeo) return;
+    this._weaponDropColumnGeo = new THREE.CylinderGeometry(0.32, 0.46, 2.9, 12, 1, true);
+    this._weaponDropCoreGeo = new THREE.CylinderGeometry(0.055, 0.055, 2.95, 6, 1, true);
+    this._weaponDropColumnMat = new THREE.MeshBasicMaterial({
+      color: 0xffd98a,
+      transparent: true,
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    this._weaponDropCoreMat = new THREE.MeshBasicMaterial({
+      color: 0xfff3c4,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+  }
+
+  /**
+   * Place one collectable weapon world model at (x,z): hovers + slowly spins
+   * inside a light column. Disposes the model on collect / expiry / reset.
+   * Returns the drop entry or null when the weapon type has no registered model.
+   */
+  _spawnWeaponDrop(typeId, x, z) {
+    if (!typeId) return null;
+    let pickup = null;
+    let type = null;
+    try {
+      type = getWeaponType(typeId);
+      this._initWeaponDropFx();
+      // World drops read a little larger than the held viewmodel scale.
+      const scale = Math.max(0.7, (type.heldScale || 0.62) * 1.5);
+      pickup = createWeaponPickup(typeId, { scale });
+    } catch (_) {
+      return null; // weapon type not registered yet (parallel model work)
+    }
+    while (this._weaponDrops.length >= WEAPON_DROP_LIMIT) {
+      this._disposeWeaponDrop(this._weaponDrops[0]);
+    }
+    const group = new THREE.Group();
+    group.name = `weapon-drop:${typeId}`;
+    group.position.set(typeof x === 'number' ? x : 0, 0, typeof z === 'number' ? z : 0);
+    const column = new THREE.Mesh(this._weaponDropColumnGeo, this._weaponDropColumnMat);
+    column.position.y = 1.55;
+    column.renderOrder = 4;
+    group.add(column);
+    const core = new THREE.Mesh(this._weaponDropCoreGeo, this._weaponDropCoreMat);
+    core.position.y = 1.55;
+    core.renderOrder = 5;
+    group.add(core);
+    // Gun lies on its side, hovering just above the sand.
+    pickup.root.position.y = 0.62;
+    pickup.root.rotation.set(0, 0, -Math.PI * 0.42);
+    group.add(pickup.root);
+    if (this.scene) this.scene.add(group);
+    const stats = getWeaponStats(typeId);
+    const entry = {
+      group,
+      pickup,
+      typeId,
+      type,
+      name: (stats && stats.name) || typeId,
+      bob: rand(0, TAU),
+      spin: rand(0, TAU),
+      life: WEAPON_DROP_LIFETIME,
+      active: true,
+    };
+    this._weaponDrops.push(entry);
+    return entry;
+  }
+
+  _disposeWeaponDrop(entry) {
+    if (!entry) return;
+    entry.active = false;
+    entry.life = 0;
+    const idx = this._weaponDrops.indexOf(entry);
+    if (idx >= 0) this._weaponDrops.splice(idx, 1);
+    try {
+      if (entry.pickup) entry.pickup.dispose(); // geometry/material/texture release
+    } catch (_) {
+      /* model dispose is best-effort */
+    }
+    if (this.scene && entry.group) this.scene.remove(entry.group);
+  }
+
+  _clearWeaponDrops() {
+    while (this._weaponDrops.length) {
+      this._disposeWeaponDrop(this._weaponDrops[this._weaponDrops.length - 1]);
+    }
+  }
+
+  _collectWeaponDrop(drop) {
+    if (!drop) return;
+    const pos = drop.group.position;
+    this._fx('sparks', pos, this._upVec, { count: 22, color: 0xffd98a, speed: 6.5 });
+    this._fx('dustBurst', new THREE.Vector3(pos.x, 0.2, pos.z), { count: 12, scale: 1.2, color: 0xffd98a });
+    this._flashLight(pos.x, 0.9, pos.z, 0xffd98a, 26, 0.5);
+    this._audio('pickup', 'power');
+    emit('weapon:notice', { text: `武器已拾取 // ${drop.name}`, type: 'info', kind: 'weapon' });
+    // main.js equips it (may replace the active slot when all 4 are owned).
+    emit('pickup:weapon', { type: drop.typeId, name: drop.name });
+    this._disposeWeaponDrop(drop);
+  }
+
+  _updateWeaponDrops(dt) {
+    const drops = this._weaponDrops;
+    if (!drops.length) return;
+    const p = this._player;
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const drop = drops[i];
+      if (!drop || !drop.active) continue;
+      drop.life -= dt;
+      drop.bob += dt * 2.2;
+      drop.spin += dt * 0.9;
+      const baseY = Math.sin(drop.bob) * 0.08;
+      drop.group.position.y = baseY;
+      drop.group.rotation.y = drop.spin;
+      if (drop.pickup && drop.pickup.root) drop.pickup.root.position.y = 0.62 + Math.sin(drop.bob * 1.3) * 0.05;
+      if (drop.life <= 0) {
+        this._disposeWeaponDrop(drop);
+        continue;
+      }
+      if (!p.alive) continue;
+      const d = dist2D(drop.group.position.x, drop.group.position.z, p.x, p.z);
+      if (d < WEAPON_DROP_PICKUP_RADIUS) this._collectWeaponDrop(drop);
+    }
+  }
+
   /* ---------------- lights ---------------- */
 
   _initLights() {
@@ -2936,7 +3379,9 @@ class EnemyManager {
   _syncState() {
     this.state.alive = this._aliveCount();
     this.state.remaining = this.state.alive + this._spawnQueue.length;
-    this.state.totalWaves = TOTAL_WAVES;
+    this.state.totalWaves = this._waveCount();
+    this.state.stageId = this._stageId;
+    this.state.difficulty = this._difficulty.id;
   }
 
   /* ---------------- dev hooks ---------------- */
@@ -2961,6 +3406,38 @@ class EnemyManager {
           los: r.los,
           fire: r.fireState,
         })),
+        /* ---- boss / difficulty / weapon-drop QA hooks ---- */
+        spawnBoss: () => {
+          const robot = this.spawnBoss();
+          return robot ? { type: robot.type, hp: robot.hp, maxHp: robot.maxHp, x: +robot.pos.x.toFixed(2), z: +robot.pos.z.toFixed(2) } : null;
+        },
+        bossInfo: () => {
+          const boss = this._findBoss();
+          if (!boss) return { alive: false, hp: 0, maxHp: 0, wave: this.state.wave };
+          return {
+            alive: boss.alive,
+            hp: Math.round(boss.hp),
+            maxHp: boss.maxHp,
+            fraction: +(boss.hp / Math.max(1, boss.maxHp)).toFixed(3),
+            wave: this.state.wave,
+            displayName: boss.def.displayName,
+          };
+        },
+        setDifficulty: (id) => this.setDifficulty(id).id,
+        getDifficulty: () => ({ ...this._difficulty }),
+        setStage: (id) => this.setStage(id),
+        getStage: () => this._stageId,
+        damageArea: (center, radius, amount, opts = {}) => this.damageArea(center, radius, amount, opts),
+        dropWeapon: (type, x, z) => this.dropWeapon(type, x, z),
+        forceWeaponDrop: (type) => this.dropWeapon(type),
+        weaponDrops: () => this._weaponDrops.map((drop) => ({
+          type: drop.typeId,
+          name: drop.name,
+          x: +drop.group.position.x.toFixed(2),
+          z: +drop.group.position.z.toFixed(2),
+          life: +drop.life.toFixed(1),
+        })),
+        debugKillAll: () => this.debugKillAll(),
       };
     } catch (_) {
       /* dev hook is best-effort only */

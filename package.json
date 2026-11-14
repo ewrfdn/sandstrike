@@ -7,8 +7,14 @@
     "start": "node serve.mjs",
     "build:html": "node scripts/build-standalone.mjs",
     "check": "node scripts/check.mjs",
+    "check:maps": "node scripts/world-check.mjs",
     "qa": "node scripts/qa.mjs",
     "qa:mobile": "node scripts/mobile-qa.mjs",
+    "qa:gamepad": "node scripts/gamepad-probe.mjs",
+    "qa:save": "node scripts/save-probe.mjs",
+    "qa:weapons": "node scripts/weapons-probe.mjs",
+    "qa:boss": "node scripts/boss-probe.mjs",
+    "qa:boss-balance": "node scripts/boss-balance-probe.mjs",
     "qa:standalone": "node scripts/verify-standalone.mjs"
   },
   "devDependencies": {

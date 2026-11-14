@@ -9,9 +9,14 @@ file outside your scope.
 Add a first-class mobile experience to the existing desktop-only FPS demo:
 
 1. **Touch controls** that can actually play the game: left virtual stick (move, auto-sprint),
-   right drag-to-look, fire (hold), ADS (toggle), reload, jump, crouch (toggle), pause.
+   right drag-to-look, fire (hold), ADS (toggle), reload, **weapon switch (⇄)**, jump,
+   crouch (toggle), pause. The player starts with only the VXR-7; the other guns come from
+   the SIEGE WARDEN boss drop (5%) and the ⇄ button cycles the carried weapons.
 2. **Responsive UI**: menu / pause / death / victory screens and in-game HUD usable on phone
-   screens in landscape (primary) and portrait (menu usable, gameplay shows a "rotate" hint).
+   screens in landscape (primary) and portrait (menu shows the rotate hint during gameplay).
+   The campaign UI additions (NEW GAME / CONTINUE / SELECT STAGE, the 4-card difficulty
+   panel, the 4-slot weapon rail and the boss HP bar) reflow inside the existing mobile
+   layout without new overlap.
 3. **Mobile performance defaults**: touch devices boot at `medium` quality with a capped pixel
    ratio; the Lead adds adaptive resolution. Desktop behavior must be **pixel-identical** to
    before (`npm run qa` must still pass; no new console errors).
@@ -23,7 +28,7 @@ Desktop controls (keyboard + mouse + pointer lock) must keep working exactly as 
 
 | Owner | Files |
 |---|---|
-| Lead | `src/player.js`, `src/weapons.js`, `src/main.js`, `index.html`, `src/config.js`, `MOBILE_SPEC.md`, `TEAM_SPEC.md`, `README.md`, `scripts/build-standalone.mjs` |
+| Lead | `src/player.js`, `src/weapons.js`, `src/main.js`, `index.html`, `src/config/game.js`, `MOBILE_SPEC.md`, `TEAM_SPEC.md`, `README.md`, `scripts/build-standalone.mjs` |
 | mobile-touch | `src/touch.js` (new, only this file) |
 | mobile-hud | `src/ui.js`, `styles.css` (only these two) |
 | mobile-qa | `scripts/mobile-qa.mjs` (new), `shots/mobile-*` outputs |
@@ -91,8 +96,10 @@ A single `<div class="touch-ui" data-touch-ui>` appended to `mount` (`#ui`):
     <button type="button" class="touch-btn touch-btn--crouch" data-touch-action="crouch" aria-label="Crouch / 蹲伏"><span class="tb-glyph">⌄</span><span class="tb-label">CROUCH</span></button>
     <button type="button" class="touch-btn touch-btn--jump"   data-touch-action="jump"   aria-label="Jump / 跳跃"><span class="tb-glyph">⌃</span><span class="tb-label">JUMP</span></button>
     <button type="button" class="touch-btn touch-btn--reload" data-touch-action="reload" aria-label="Reload / 换弹"><span class="tb-glyph">⟲</span><span class="tb-label">RELOAD</span></button>
+    <button type="button" class="touch-btn touch-btn--switch" data-touch-action="switch" aria-label="Switch weapon / 切换武器"><span class="tb-glyph">⇄</span><span class="tb-label">SWITCH</span></button>
     <button type="button" class="touch-btn touch-btn--ads"    data-touch-action="ads"    aria-label="Aim down sight / 机瞄"><span class="tb-glyph">+</span><span class="tb-label">ADS</span></button>
     <button type="button" class="touch-btn touch-btn--fire"   data-touch-action="fire"   aria-label="Fire / 射击"><span class="tb-glyph">◎</span><span class="tb-label">FIRE</span></button>
+    <button type="button" class="touch-btn touch-btn--fire2"  data-touch-action="fire"   aria-label="Fire / 开火（左）"><span class="tb-glyph">◎</span><span class="tb-label">FIRE</span></button>
   </div>
 
   <button type="button" class="touch-pause" data-touch-action="pause" aria-label="Pause / 暂停"><span class="tb-glyph">II</span></button>
@@ -110,7 +117,13 @@ Contract details:
 - `.touch-look` is the right-hand look/drag surface (full height, right ~64% width, CSS
   positions it). `pointer-events: auto` only while `.touch-ui.is-visible`.
 - The stick button cluster and pause button live **above** the look surface (CSS z-index).
-- `data-touch-action` values: `fire`, `ads`, `reload`, `jump`, `crouch`, `pause`.
+- `data-touch-action` values: `fire`, `ads`, `reload`, `switch`, `jump`, `crouch`, `pause`.
+  There are **two `data-touch-action="fire"` buttons** (primary right, `touch-btn--fire`;
+  secondary mirrored left, `touch-btn--fire2`). Fire input tracks a Set of pointer ids so
+  holding both then releasing one keeps firing until the last release. `switch` is a new
+  sixth action button (`⇄ SWITCH`) placed in the cluster between RELOAD and ADS; it is
+  **tap-only** (one `weapon.cycleWeapon(1)` per press, no hold repeat) and is a safe no-op
+  while the player owns a single weapon.
 - Toggle-state buttons get class `is-on` (ADS, crouch) and `aria-pressed="true"`.
 - `.touch-ui` gets class `is-visible` only while the game state is `playing`.
 - The rotate hint is shown by CSS only (`@media (orientation: portrait)`) while `.is-visible`.
@@ -134,6 +147,7 @@ stick + look + fire (three pointers). Every listener that cancels gestures uses
 | fire | press & hold | `weapon.setTrigger(true)`; release/cancel → `weapon.setTrigger(false)` |
 | ads | tap | toggle `weapon.setAiming(bool)`; sync `is-on` / `aria-pressed` |
 | reload | tap | `weapon.startReload()` |
+| switch | tap | `weapon.cycleWeapon(1)` (guarded; no-op with one weapon; cancels reload/ADS via the weapon API) |
 | jump | tap | `player.queueJump()` |
 | crouch | tap | toggle `player.setCrouchHeld(bool)`; sync `is-on` / `aria-pressed` |
 | pause | tap | `onPause?.()` (do **not** emit `ui:pause` yourself) |
@@ -173,7 +187,15 @@ Keyboard behavior is unchanged; virtual values are combined additively in `updat
 weapon.setTrigger(down)  // virtual trigger: true = triggerDown + immediate tryFire(), false = release
 weapon.setAiming(bool)   // virtual ADS; drives the same `aiming` field the right mouse button sets
 weapon.setTouchMode(bool) // true: ignore mouse mousedown/mouseup input (touch layer owns it)
+weapon.cycleWeapon(dir)  // dir +1 / -1: next / previous carried weapon; starts the draw
+                         // animation and cancels ADS/reload. Safe no-op with one weapon.
 ```
+
+Multi-weapon campaign context for the touch layer: the player starts with only the
+VXR-7 and the other three guns (RPG-7 / M-77 gatling / SG-12 shotgun) drop from the SIEGE
+WARDEN boss (5% per kill). The ⇄ SWITCH button is the touch equivalent of keyboard Q/E,
+mouse wheel and gamepad RB / D-pad; the HUD rail (`[data-weapon-slots]`, 4 cells) updates
+from the `weapon:slots` bus event and highlights the active cell.
 
 ## 6. `src/main.js` wiring (Lead)
 
@@ -196,8 +218,9 @@ This workspace is shared with a **separate, non-mobile workstream** that is addi
 (concurrently, outside this contract):
 
 - a DEPLOY difficulty modal: `[data-start]` / `[data-action="restart"]` now open a
-  dialog; the run starts only after tapping `[data-deploy-value="standard"|"hardcore"]`
-  (`src/ui.js`, `.deploy` CSS);
+  dialog; the run starts only after tapping
+  `[data-deploy-value="recruit"|"standard"|"veteran"|"nightmare"]` (`src/ui.js`, `.deploy` CSS);
+  the menu action column also gained CONTINUE and SELECT STAGE (`[data-stage-select]`);
 - a frame-counter HUD / `showFps` setting / `F3` toggle (`.fps-*` elements in `src/ui.js`);
 - their own probe scripts (`scripts/fps-*.mjs`, `scripts/tmp-*.mjs`) and updates to
   `scripts/qa.mjs` (which now handles the deploy modal).
@@ -231,9 +254,32 @@ Required CSS contract for the touch DOM (§3.1):
 - Visual language must match the existing HUD (amber/cyan, thin borders, clipped/glass panels,
   `var(--amber)`, `var(--cyan)`, `var(--panel-*)`, letter-spacing; no external images/fonts).
 - Safe areas: use `env(safe-area-inset-*)` on all four HUD corners, touch buttons and pause button.
-- Sizes: fire button ≥ 76px diameter; other action buttons ≥ 52px; pause ≥ 44px tap target.
+- Sizes: fire button ≥ 84px diameter; other action buttons ≥ 52px; pause ≥ 44px tap target.
   All must sit inside the viewport at 640×320 (small landscape) without overlap:
-  left stick bottom-left; action cluster bottom-right; pause top-right.
+  left stick bottom-left; pause top-right.
+- **CODM-style two-fire layout (v3, user feedback)**: two mirrored FIRE buttons, and the action
+  buttons placed per the user's reference. All centres are % of the safe-area viewport, circles are
+  centred with negative margins so `transform` stays free for press states:
+
+  | control | centre (x, y) | size | notes |
+  |---|---|---|---|
+  | FIRE (primary, right) | 80%, 62% | clamp(88px, 23vmin, 96px) | v3.1: smaller + lowered from the 54% "middle" anchor per user feedback |
+  | FIRE2 (secondary, left) | 16%, 52.5% | clamp(72px, 18vmin, 84px) | mirrored left-hand fire, above the stick (height kept to clear the joystick at 640×320) |
+  | RELOAD | 94%, 27% | clamp(50px, 13vmin, 60px) | upper-right of FIRE |
+  | ADS | 94%, 45.5% | clamp(50px, 13vmin, 60px) | right of FIRE, below RELOAD |
+  | SWITCH (⇄) | 94%, 69.5% | small, `var(--tb-small)` | below ADS on the right edge; tap-only weapon cycle, DOM order between RELOAD and ADS |
+  | JUMP | 92%, 87% | clamp(58px, 15vmin, 66px) | bottom edge |
+  | CROUCH | 81%, 89% | clamp(56px, 14.5vmin, 64px) | bottom edge, left of JUMP |
+
+  Zero overlap is required between every touch button and the radar / frame-counter / killfeed /
+  ammo / vitals / score / wave / notices / **weapon-slot rail** / **boss HP bar** HUD panels, the
+  stick and the pause button at 640×320, 844×390, 932×430 and 1024×768. On phone landscape the
+  HUD reflows to make room: vitals become two mini bars top-left under the score, the ammo panel
+  moves bottom-centre-left, the killfeed is capped to one row and the frame counter is hidden (it
+  would sit behind FIRE). The 4-slot weapon rail compacts for touch (`html.is-touch .weapon-slots`
+  / `.wslot`: §7 gap 3px, 7.5 px names, slot-number keys hidden) and the boss HP bar becomes
+  `width: min(460px, 42vw)` anchored above the letterbox / touch buttons so it never covers the
+  action cluster.
 - Keep the pause button clear of the existing top-right radar panel (shift/scale the radar in the
   touch media queries).
 - `.touch-rotate` hint: hidden by default; `@media (orientation: portrait)` + `.touch-ui.is-visible`
@@ -254,8 +300,9 @@ Required CSS contract for the touch DOM (§3.1):
 
 - When `document.documentElement.classList.contains('is-touch')` (evaluate once in `_build`),
   render the CONTROLS panel with touch rows instead of keyboard rows:
-  `LEFT STICK 移动`, `DRAG 视角`, `FIRE 开火`, `ADS 机瞄`, `RELOAD 换弹`, `JUMP 跳跃`,
-  `CROUCH 蹲伏`, `PAUSE 暂停`. Keep the `.controls-list` structure.
+  `LEFT STICK 移动`, `DRAG 视角`, `FIRE 开火`, `ADS 机瞄`, `RELOAD 换弹`,
+  `SWITCH 切换武器`, `JUMP 跳跃`, `CROUCH 蹲伏`, `PAUSE 暂停`. Keep the `.controls-list`
+  structure.
 - Do not change event handling, bus contracts, or HUD logic. `npm run qa` must pass unchanged.
 
 ## 8. Mobile QA (`scripts/mobile-qa.mjs`, mobile-qa)
@@ -279,9 +326,11 @@ Assertions (write results to `shots/mobile-qa.json`, exit 1 on any failure, prin
 
 1. Loads with 0 console errors / page errors; `window.__sandstrikeApp.loaded === true`.
 2. Menu: `[data-start]` visible, rect inside viewport, height ≥ 44 px; no horizontal page overflow.
-3. Tap START → the DEPLOY difficulty modal opens (external workstream feature, see §6.1);
-   tap `[data-deploy-value="standard"]` → state `playing`, `.touch-ui.is-visible`,
-   `document.pointerLockElement === null`.
+3. Tap NEW GAME (`[data-start]`) → the DEPLOY difficulty modal opens (external workstream
+   feature, see §6.1); four `[data-deploy-value]` cards are visible
+   (`recruit` / `standard` / `veteran` / `nightmare`); tap `[data-deploy-value="standard"]`
+   → state `playing`, `.touch-ui.is-visible`, `document.pointerLockElement === null`.
+   CONTINUE and SELECT STAGE are present in the menu action column and gated by save state.
 4. Stick: drag from stick center upward ~55 px, wait 700 ms → player moved > 0.4 m;
    after `touchEnd` → poll until player speed < 0.3 m/s (frame-paced, use a long timeout).
 5. Look: drag on `.touch-look` right→left 120 px → `player.yaw` changed by > 0.25 rad.
@@ -300,6 +349,15 @@ Assertions (write results to `shots/mobile-qa.json`, exit 1 on any failure, prin
 14. Desktop regression: 1600×900 without hasTouch → `.touch-ui` not visible, start click works,
     no console errors. (Full desktop QA is the Lead's job; a smoke check here is enough.)
 
+15. Weapon switch + campaign HUD: `.touch-buttons [data-touch-action="switch"]` is visible,
+    inside the viewport, ≥ 44 px tap target and sits in DOM order between RELOAD and ADS;
+    tapping it with only the VXR-7 owned does not change the active slot and does not throw.
+    After `__sandstrike.forceWeapon('gatling')`, one tap switches to the M-77
+    (`getState().weaponType === 'gatling'`, HUD `[data-weapon-slots] .wslot.is-active`
+    moves to `[data-slot="2"]`, ammo reads the 200-round belt) and a second tap cycles on.
+    `[data-boss-bar]` is hidden before a boss and `.is-active` after `__sandstrike.spawnBoss()`
+    with the fill/hp text updating from `boss:hp`; capture `shots/mobile-08-weapon-switch.png`.
+
 Keep the whole run under ~5 minutes; use dev hooks (`__sandstrike.freeze`, `renderOnce`,
 `start()`, `damagePlayer`) to avoid waiting on real gameplay. Screenshots must be taken after a
 `renderOnce()` + short wait, like `scripts/qa.mjs` does.
@@ -317,10 +375,11 @@ Keep the whole run under ~5 minutes; use dev hooks (`__sandstrike.freeze`, `rend
 | Check | Result |
 |---|---|
 | `node scripts/check.mjs` | pass |
-| `node scripts/mobile-qa.mjs` | **14/14 groups, exit 0**, 133 s, 0 console errors (landscape/portrait/desktop), 7 fresh DPR-3 screenshots |
-| `node scripts/verify-standalone.mjs` (rebuilt `sandstrike.html`) | **0 errors**, render loop normal, 0 network requests, 15/15 waves cleared on `file://` |
+| `node scripts/mobile-qa.mjs` (v3 two-fire layout) | **14/14 groups, exit 0**, 199 s, 0 console errors, 7 fresh DPR-3 screenshots |
+| `node scripts/build-standalone.mjs` + `node scripts/verify-standalone.mjs` (v3) | rebuilt 1.19 MB; **0 errors**, render loop normal, 0 network requests, 15/15 waves on `file://` |
 | `node scripts/qa.mjs` (desktop 1600×900) | **0 errors**, full 15 waves → victory, death screen, movement-direction + loot regressions pass |
-| Desktop visual regression (mobile-hud evidence) | 324 mobile-only rules exist, 0 match a desktop element; clearing all 324 changed 0 of 629 nodes × 61 computed properties |
+| Touch layout v3 measurements (mobile-hud) | 2 FIRE buttons; zero button↔HUD / button↔button overlap at 640×320, 844×390, 932×430, 1024×768; min gaps 9.2–47.7 px; FIRE 92–112 px, FIRE2 76–92 px, min tap 50 px |
+| Desktop visual regression (mobile-hud evidence) | no `is-touch` class / no touch DOM on desktop, keyboard CONTROLS legend intact, identical START rect; mobile-only rules match 0 desktop elements |
 | `shots/mobile-*.png` + `shots/mobile-css-*.png` | reviewed: menu, deploy, HUD, fire, pause, death, portrait rotate hint, 640×320/932×430/tablet/desktop |
 
 Known notes:

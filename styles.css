@@ -1,7 +1,7 @@
-/* ============================================================================
-   SANDSTRIKE // 沙暴协议 — UI / HUD stylesheet
+﻿/* ============================================================================
+   SANDSTRIKE // 娌欐毚鍗忚 鈥?UI / HUD stylesheet
    No external fonts or images. Everything is gradients, borders, clip-paths,
-   inline SVG noise and canvas-safe glass panels. Tuned for 1280x720 → 2160p.
+   inline SVG noise and canvas-safe glass panels. Tuned for 1280x720 鈫?2160p.
    ========================================================================== */
 
 /* ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ input:focus-visible {
 }
 
 #boot::before {
-  content: 'ESTABLISHING TACTICAL LINK // 建立战术链路';
+  content: 'ESTABLISHING TACTICAL LINK // 寤虹珛鎴樻湳閾捐矾';
   position: absolute;
   bottom: 12vh;
   left: 0;
@@ -163,7 +163,7 @@ input:focus-visible {
 }
 
 #boot::after {
-  content: 'SANDSTRIKE // 沙暴协议';
+  content: 'SANDSTRIKE // 娌欐毚鍗忚';
   position: absolute;
   top: 12vh;
   left: 0;
@@ -422,7 +422,7 @@ body.ui-ready #boot {
 }
 
 /* ---------------------------------------------------------------------------
-   3. Screens — shared
+   3. Screens 鈥?shared
    ------------------------------------------------------------------------- */
 .screen {
   position: absolute;
@@ -451,7 +451,7 @@ body.ui-ready #boot {
 }
 
 /* ---------------------------------------------------------------------------
-   4. HUD — layout
+   4. HUD 鈥?layout
    ------------------------------------------------------------------------- */
 .hud {
   position: absolute;
@@ -596,7 +596,7 @@ body.ui-ready #boot {
 }
 
 /* ---------------------------------------------------------------------------
-   5. HUD — panels
+   5. HUD 鈥?panels
    ------------------------------------------------------------------------- */
 .wave-panel,
 .obj-panel,
@@ -1287,7 +1287,7 @@ body.ui-ready #boot {
   text-shadow: 0 0 14px rgba(124, 231, 255, 0.25);
 }
 
-/* "/max" ceiling readout — reveals relic / vital-core upgrades at a glance. */
+/* "/max" ceiling readout 鈥?reveals relic / vital-core upgrades at a glance. */
 .vital-max {
   margin-left: 2px;
   font-family: var(--font-mono);
@@ -3240,6 +3240,139 @@ kbd {
 }
 
 /* ---------------------------------------------------------------------------
+   10b. Gamepad / controller layer (GAMEPAD_SPEC.md 搂6.6)
+   The input module owns polling + the `.gp-focus` class; this section only
+   styles the shared state. `.gp-focus` must never shift layout, so the ring is
+   an outline + glow (no border / margin / padding changes).
+   ------------------------------------------------------------------------- */
+
+/* Focus ring: 2 px amber outline with offset and a soft glow. It has to read
+   over bright sand, dark glass and the amber START button alike. */
+.gp-focus {
+  outline: 2px solid var(--amber-2);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px rgba(9, 6, 4, 0.9), 0 0 22px rgba(255, 154, 61, 0.55);
+  position: relative;
+  z-index: 3;
+}
+
+/* Beat the global `button:focus-visible` / `input:focus-visible` hairline ring
+   (same specificity, later in the sheet) so the pad ring is always 2 px. */
+button.gp-focus,
+input.gp-focus {
+  outline-width: 2px;
+  outline-style: solid;
+  outline-color: var(--amber-2);
+}
+
+/* Chamfered elements clip their own outline (clip-path), so the crisp ring is
+   drawn just inside the shape and the glow is applied as a filter, which is
+   painted after clipping. */
+.mbtn.gp-focus {
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 2px var(--amber-2), 0 0 26px rgba(255, 154, 61, 0.42);
+  filter: drop-shadow(0 0 9px rgba(255, 154, 61, 0.75));
+}
+
+.mbtn--primary.gp-focus {
+  outline-color: #fff0d8;
+  box-shadow: inset 0 0 0 2px #fff0d8, 0 0 28px rgba(255, 154, 61, 0.6);
+}
+
+/* Buttons that keep the sharp outline but sit on dark glass. */
+.deploy-card.gp-focus,
+.set-toggle.gp-focus,
+.set-quality button.gp-focus {
+  outline: 2px solid var(--amber-2);
+  outline-offset: 3px;
+  box-shadow: 0 0 22px rgba(255, 154, 61, 0.5), inset 0 0 0 1px rgba(255, 230, 194, 0.35);
+  border-color: var(--amber-2);
+  transform: none;
+}
+
+/* Range focus: ring around the whole 18px track band. */
+input[type='range'].gp-focus {
+  outline: 2px solid var(--amber-2);
+  outline-offset: 4px;
+  border-radius: 1px;
+  box-shadow: 0 0 18px rgba(255, 154, 61, 0.45);
+}
+
+/* Controller status row (both settings panels). */
+.set-pad {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--sand-3);
+  text-transform: uppercase;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.set-pad::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(238, 205, 158, 0.28);
+}
+
+.set-pad.is-on {
+  color: var(--green);
+  text-shadow: 0 0 12px rgba(141, 255, 201, 0.22);
+}
+
+.set-pad.is-on::before {
+  background: var(--green);
+  box-shadow: 0 0 7px var(--green);
+}
+
+/* Pad legend rows share the keyboard list metrics; the wider labels (LSTICK,
+   D-PAD, OPTIONS鈥? are allowed to shrink instead of pushing the row wide. */
+.ctrl-row--pad .keys { flex: none; }
+.ctrl-row--pad kbd {
+  min-width: 20px;
+  padding: 0 5px;
+  letter-spacing: 0.02em;
+}
+
+/* Last-used difficulty card: subtle amber highlight + corner tick (搂6.5). */
+.deploy-card.is-default {
+  border-color: rgba(255, 154, 61, 0.42);
+  background: linear-gradient(160deg, rgba(64, 44, 23, 0.68), rgba(17, 12, 8, 0.82));
+}
+
+.deploy-card.is-default::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(225deg, rgba(255, 196, 119, 0.95) 0 50%, transparent 50%);
+  pointer-events: none;
+}
+
+.deploy-card--hard.is-default {
+  border-color: rgba(255, 120, 96, 0.5);
+}
+
+.deploy-card--hard.is-default::after {
+  background: linear-gradient(225deg, rgba(255, 120, 96, 0.95) 0 50%, transparent 50%);
+}
+
+/* Controller mode: the pointer stays usable (cursor visible) and hover-only
+   motion does not fight the focus ring. */
+html.is-gamepad body { cursor: default; }
+html.is-gamepad .mbtn:hover { transform: none; }
+html.is-gamepad .mbtn--primary:hover { transform: none; }
+html.is-gamepad .mbtn:active { transform: none; }
+
+/* ---------------------------------------------------------------------------
    11. Pause screen
    ------------------------------------------------------------------------- */
 .screen--pause {
@@ -3343,6 +3476,15 @@ kbd {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 154, 61, 0.4) transparent;
+}
+
+/* The controller milestone added CONTROLLER + VIBRATION rows to SYSTEM CONFIG.
+   On tall viewports there is room to show every row, so raise the pause panel
+   cap instead of leaving AUDIO OUTPUT clipped mid-row by the 44vh fold. */
+@media (min-height: 880px) {
+  .pause-side .panel--settings {
+    max-height: 52vh;
+  }
 }
 
 .pause-runstats {
@@ -4011,16 +4153,16 @@ kbd {
 }
 
 /* ============================================================================
-   14. Mobile / touch adaptation — MOBILE_SPEC.md §3.1 + §7
+   14. Mobile / touch adaptation 鈥?MOBILE_SPEC.md 搂3.1 + 搂7
    ---------------------------------------------------------------------------
    Additive only. Everything outside the media queries is scoped to `.touch-*`
    (the layer built by src/touch.js) or `html.is-touch` (set by src/main.js on
-   phones/tablets, or forced with ?touch=1). The four §7 media-query sections
+   phones/tablets, or forced with ?touch=1). The four 搂7 media-query sections
    follow at the end in contract order:
-     14.4  (hover:none) and (pointer:coarse)   — touch-device baseline
-     14.5  (max-height:500px)                  — phone landscape
-     14.6  (max-width:1024px) and (min-height:501px) — tablets / small windows
-     14.7  (orientation:portrait)              — portrait stack + rotate hint
+     14.4  (hover:none) and (pointer:coarse)   鈥?touch-device baseline
+     14.5  (max-height:500px)                  鈥?phone landscape
+     14.6  (max-width:1024px) and (min-height:501px) 鈥?tablets / small windows
+     14.7  (orientation:portrait)              鈥?portrait stack + rotate hint
    Desktop (fine pointer, >=900x560) is untouched by design.
    ========================================================================== */
 
@@ -4028,8 +4170,14 @@ kbd {
    14.1 Touch layer variables
    ------------------------------------------------------------------------- */
 html.is-touch {
-  --tb-fire: clamp(84px, 22vmin, 96px);
-  --tb-size: clamp(52px, 15vmin, 68px);
+  /* CODM v3.1 two-fire layout: FIRE primary right side at 62% height (user
+     feedback: smaller + a bit lower than the 54% "middle" anchor), mirrored
+     FIRE2 left, RELOAD+ADS stacked upper-right of FIRE, JUMP/CROUCH bottom edge. */
+  --tb-fire: clamp(88px, 23vmin, 96px);
+  --tb-fire2: clamp(72px, 18vmin, 84px);
+  --tb-small: clamp(50px, 13vmin, 60px); /* ADS + RELOAD */
+  --tb-jump: clamp(58px, 15vmin, 66px);
+  --tb-crouch: clamp(56px, 14.5vmin, 64px);
   --tb-gap: clamp(8px, 1.8vmin, 12px);
   --tb-edge: clamp(10px, 1.8vmin, 18px);
   --tb-stick: clamp(96px, 28vmin, 156px);
@@ -4039,19 +4187,12 @@ html.is-touch {
   --tb-safe-r: env(safe-area-inset-right, 0px);
   --tb-safe-t: env(safe-area-inset-top, 0px);
   --tb-safe-b: env(safe-area-inset-bottom, 0px);
-  /* CODM-style right-thumb arc: FIRE is raised off the bottom edge so its
-     vertical centre sits at 62.5% of the viewport height (>=84px, never
-     clipped by the OS gesture bar). The other four buttons orbit it in two
-     loose columns to the left/above. */
-  --tb-cluster-w: calc(var(--tb-fire) + 2 * var(--tb-gap) + 2 * var(--tb-size));
-  --tb-cluster-h: calc(var(--tb-fire) + var(--tb-gap) + var(--tb-size));
-  --tb-fire-bottom: calc(var(--tb-safe-b) + 37.5vh - var(--tb-fire) / 2);
-  /* phones get a smaller recon sweep so the pause button owns the corner */
+  /* phones get a smaller recon sweep so the right-hand controls own the corner */
   --radar: clamp(84px, 20vh, 148px);
 }
 
 /* ---------------------------------------------------------------------------
-   14.2 Touch control layer — DOM contract (MOBILE_SPEC.md §3.1)
+   14.2 Touch control layer 鈥?DOM contract (MOBILE_SPEC.md 搂3.1)
    ------------------------------------------------------------------------- */
 .touch-ui {
   position: fixed;
@@ -4074,7 +4215,7 @@ html.is-touch {
   visibility: visible;
 }
 
-/* Right ~64% of the screen is the drag-to-look surface (full height, §3.1). */
+/* Right ~64% of the screen is the drag-to-look surface (full height, 搂3.1). */
 .touch-look {
   position: absolute;
   top: 0;
@@ -4086,7 +4227,7 @@ html.is-touch {
 }
 
 /* Interactive children only accept pointers while the layer is visible, so a
-   hidden touch layer can never eat menu/pause clicks (MOBILE_SPEC.md §7). */
+   hidden touch layer can never eat menu/pause clicks (MOBILE_SPEC.md 搂7). */
 .touch-ui.is-visible .touch-look,
 .touch-ui.is-visible .touch-stick,
 .touch-ui.is-visible .touch-btn,
@@ -4194,28 +4335,34 @@ html.is-touch {
 }
 
 /* --- action cluster ------------------------------------------------------ */
-/* The container's bottom edge is FIRE's bottom edge (see --tb-fire-bottom);
-   buttons above FIRE grow upward, RELOAD below it overflows visibly. */
+/* Full-viewport (safe-area aware) positioning shell: each button places itself
+   by viewport centre percentages 鈥?CODM-style mirrored two-fire layout. */
 .touch-buttons {
   position: absolute;
-  right: calc(var(--tb-safe-r) + var(--tb-edge));
-  bottom: var(--tb-fire-bottom);
-  width: var(--tb-cluster-w);
-  height: var(--tb-cluster-h);
+  inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   z-index: 4;
   pointer-events: none;
   touch-action: none;
 }
 
 .touch-btn {
+  /* each modifier class opts into a size (--tb-btn) and a viewport centre
+     (--tb-left / --tb-top); negative margins centre the circle on that point
+     and leave `transform` free for the press/scale states. */
+  --tb-btn: var(--tb-small);
+  --tb-left: 50%;
+  --tb-top: 50%;
   position: absolute;
+  left: var(--tb-left);
+  top: var(--tb-top);
+  margin: calc(var(--tb-btn) * -0.5) 0 0 calc(var(--tb-btn) * -0.5);
   display: grid;
   grid-template-rows: auto auto;
   align-content: center;
   justify-items: center;
   gap: 1px;
-  width: var(--tb-size);
-  height: var(--tb-size);
+  width: var(--tb-btn);
+  height: var(--tb-btn);
   padding: 0;
   border-radius: 50%;
   color: var(--sand-1);
@@ -4234,7 +4381,7 @@ html.is-touch {
   will-change: transform;
 }
 
-/* inner hairline ring — tactical instrument look */
+/* inner hairline ring 鈥?tactical instrument look */
 .touch-btn::before {
   content: '';
   position: absolute;
@@ -4259,7 +4406,7 @@ html.is-touch {
 
 .touch-btn .tb-glyph {
   font-family: var(--font-mono);
-  font-size: calc(var(--tb-size) * 0.34);
+  font-size: calc(var(--tb-btn) * 0.34);
   font-weight: 600;
   line-height: 1;
   color: var(--amber-2);
@@ -4268,7 +4415,7 @@ html.is-touch {
 }
 
 .touch-btn .tb-label {
-  font-size: calc(var(--tb-size) * 0.15);
+  font-size: calc(var(--tb-btn) * 0.15);
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.12em;
@@ -4276,12 +4423,12 @@ html.is-touch {
   pointer-events: none;
 }
 
-/* fire is the anchor: 84px-class primary control */
+/* FIRE is the primary anchor: biggest control, right side at 62% height
+   (user feedback v3.1: smaller and lower than the 54% "middle" anchor) */
 .touch-btn--fire {
-  right: 0;
-  bottom: 0;
-  width: var(--tb-fire);
-  height: var(--tb-fire);
+  --tb-btn: var(--tb-fire);
+  --tb-left: 80%;
+  --tb-top: 62%;
   background:
     radial-gradient(circle at 50% 30%, rgba(255, 214, 158, 0.26) 0%, rgba(255, 154, 61, 0.12) 44%, rgba(30, 18, 9, 0.94) 72%, rgba(12, 8, 5, 0.98) 100%),
     var(--panel-bg);
@@ -4308,26 +4455,67 @@ html.is-touch {
   color: var(--amber-2);
 }
 
-/* CODM-style right-thumb arc around the raised FIRE anchor:
-   - right-edge column: CROUCH above FIRE, RELOAD tucked below FIRE
-   - one column left: ADS level with FIRE, JUMP below ADS
-   All gaps are >= 8px and every offset is derived from --tb-fire / --tb-size
-   so the arc scales from 640x320 phones to 1024x768 tablets. */
-.touch-btn--crouch {
-  right: calc((var(--tb-fire) - var(--tb-size)) / 2);
-  bottom: calc(var(--tb-fire) + var(--tb-gap));
+/* Mirrored secondary FIRE (CODM left-hand fire): same tactical language,
+   slightly smaller and a touch dimmer so the primary reads as the anchor. */
+.touch-btn--fire2 {
+  --tb-btn: var(--tb-fire2);
+  --tb-left: 16%;
+  /* 52.5% (not 54%) keeps an 8px+ gap to the joystick at 640x320 while still
+     reading as the mirrored partner of FIRE. */
+  --tb-top: 52.5%;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(255, 214, 158, 0.2) 0%, rgba(255, 154, 61, 0.1) 44%, rgba(28, 17, 9, 0.94) 72%, rgba(12, 8, 5, 0.98) 100%),
+    var(--panel-bg);
+  border-color: rgba(255, 154, 61, 0.52);
+  box-shadow:
+    0 0 20px rgba(255, 154, 61, 0.14),
+    0 9px 22px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 226, 186, 0.16);
 }
-.touch-btn--reload {
-  right: calc((var(--tb-fire) - var(--tb-size)) / 2);
-  bottom: calc(-1 * (var(--tb-gap) + var(--tb-size)));
+
+.touch-btn--fire2::before {
+  inset: 5px;
+  border-color: rgba(255, 154, 61, 0.26);
 }
+
+.touch-btn--fire2 .tb-glyph {
+  font-size: calc(var(--tb-fire2) * 0.3);
+  color: #ffd9a6;
+  text-shadow: 0 0 14px rgba(255, 154, 61, 0.55), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.touch-btn--fire2 .tb-label {
+  font-size: calc(var(--tb-fire2) * 0.13);
+  color: var(--amber-2);
+}
+
+/* CODM v3 mirrored layout 鈥?centres as % of the safe-area viewport:
+   FIRE (80/54 right-middle) + FIRE2 (16/53 left mirror);
+   ADS 94/45.5 and RELOAD 94/27 stacked on the upper-right of FIRE
+   (tuned from 43/30 so the 50-60px circles keep an 8px+ gap at 640x320);
+   JUMP 92/87 and CROUCH 81/89 ride the bottom edge. */
 .touch-btn--ads {
-  right: calc(var(--tb-fire) + var(--tb-gap));
-  bottom: calc((var(--tb-fire) - var(--tb-size)) / 2);
+  --tb-btn: var(--tb-small);
+  --tb-left: 94%;
+  --tb-top: 45.5%;
 }
+
+.touch-btn--reload {
+  --tb-btn: var(--tb-small);
+  --tb-left: 94%;
+  --tb-top: 27%;
+}
+
 .touch-btn--jump {
-  right: calc(var(--tb-fire) + 2 * var(--tb-gap) + var(--tb-size));
-  bottom: calc((var(--tb-fire) - var(--tb-size)) / 2 - (var(--tb-size) + var(--tb-gap)));
+  --tb-btn: var(--tb-jump);
+  --tb-left: 92%;
+  --tb-top: 87%;
+}
+
+.touch-btn--crouch {
+  --tb-btn: var(--tb-crouch);
+  --tb-left: 81%;
+  --tb-top: 89%;
 }
 
 /* pressed / toggled states */
@@ -4340,7 +4528,8 @@ html.is-touch {
   box-shadow: 0 0 22px rgba(255, 154, 61, 0.3), inset 0 0 18px rgba(255, 154, 61, 0.12);
 }
 
-.touch-ui.is-firing .touch-btn--fire {
+.touch-ui.is-firing .touch-btn--fire,
+.touch-ui.is-firing .touch-btn--fire2 {
   transform: scale(0.94);
   border-color: #ffd9a6;
   background:
@@ -4349,7 +4538,8 @@ html.is-touch {
   box-shadow: 0 0 34px rgba(255, 154, 61, 0.45), inset 0 0 22px rgba(255, 154, 61, 0.22);
 }
 
-.touch-ui.is-firing .touch-btn--fire::before {
+.touch-ui.is-firing .touch-btn--fire::before,
+.touch-ui.is-firing .touch-btn--fire2::before {
   border-color: rgba(255, 214, 158, 0.55);
 }
 
@@ -4422,7 +4612,7 @@ html.is-touch {
   border-color: var(--amber-2);
 }
 
-/* --- portrait rotate hint (shown by CSS only, §3.1/§7) ------------------- */
+/* --- portrait rotate hint (shown by CSS only, 搂3.1/搂7) ------------------- */
 .touch-rotate {
   position: absolute;
   inset: 0;
@@ -4532,9 +4722,9 @@ html.is-touch .hud-top-center {
 
 html.is-touch .hud-top-right {
   top: calc(var(--tb-safe-t) + var(--tb-hud));
-  /* +46px keeps the recon/perf/killfeed column clear of the raised CROUCH
-     button that now sits above FIRE on the right edge (measured gap >=10px
-     at 844x390 / 932x430 / 640x320 / 1024x768). */
+  /* +46px keeps the recon/perf/killfeed column clear of the ADS/RELOAD stack
+     (they now sit at 94% W, 27鈥?5.5% H); measured gap >=8px at all four
+     target sizes. */
   right: calc(var(--tb-safe-r) + var(--tb-hud) + var(--tb-pause) + 6px + 46px);
   width: max(var(--radar), 176px);
   gap: 4px;
@@ -4547,7 +4737,9 @@ html.is-touch .hud-bottom-left {
 }
 
 html.is-touch .hud-bottom-right {
-  right: calc(var(--tb-safe-r) + var(--tb-edge) + var(--tb-cluster-w) + var(--tb-gap));
+  /* ammo sits bottom-centre-left, ending 10px short of the bottom-edge CROUCH
+     button (81% W) so it never touches JUMP/CROUCH. */
+  right: calc(var(--tb-safe-r) + 19vw + var(--tb-crouch) / 2 + 10px);
   bottom: calc(var(--tb-safe-b) + var(--tb-edge));
   width: min(184px, 34vw);
 }
@@ -4715,7 +4907,7 @@ html.is-touch .dc-tag { padding: 1px 6px; font-size: 7.5px; }
 html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0.14em; }
 
 /* ---------------------------------------------------------------------------
-   14.4 §7.1 — Touch-device baseline: (hover: none) and (pointer: coarse)
+   14.4 搂7.1 鈥?Touch-device baseline: (hover: none) and (pointer: coarse)
    ------------------------------------------------------------------------- */
 @media (hover: none) and (pointer: coarse) {
   html.is-touch,
@@ -4733,7 +4925,7 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
   html.is-touch .fx-grain { animation: none; opacity: 0.026; }
   html.is-touch .fx-scanlines { opacity: 0.32; }
 
-  /* touch taps can leave :hover latched — drop hover-only transforms */
+  /* touch taps can leave :hover latched 鈥?drop hover-only transforms */
   html.is-touch .mbtn:active,
   html.is-touch .mbtn--primary:active {
     transform: none;
@@ -4746,7 +4938,7 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
 }
 
 /* ---------------------------------------------------------------------------
-   14.5 §7.2 — Phone landscape: (max-height: 500px)
+   14.5 搂7.2 鈥?Phone landscape: (max-height: 500px)
    Compact HUD, compact menu (START visible without scrolling), compact
    pause / death / victory screens.
    ------------------------------------------------------------------------- */
@@ -4784,11 +4976,27 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
   html.is-touch .radar-head { margin-bottom: 3px; }
   html.is-touch .radar-foot { margin-top: 3px; }
 
-  html.is-touch .vitals-panel { padding: 5px 8px 5px; }
-  html.is-touch .vital + .vital { margin-top: 4px; }
-  html.is-touch .vital-num { font-size: 14px; }
-  html.is-touch .vital--armor .vital-num { font-size: 12px; }
-  html.is-touch .vital-seg i { height: 4px; }
+  /* vitals move under the score at the top-left: the left-middle band now
+     belongs to FIRE2 (16% W, 53% H). Two mini bars side by side keep the
+     panel short enough to clear FIRE2's top edge at 640x320. */
+  html.is-touch .hud-bottom-left {
+    top: calc(var(--tb-safe-t) + 88px);
+    bottom: auto;
+    left: calc(var(--tb-safe-l) + 6px);
+    width: min(196px, 36vw);
+  }
+  html.is-touch .vitals-panel { display: flex; gap: 7px; padding: 5px 7px 6px; }
+  html.is-touch .vital { flex: 1 1 0; min-width: 0; }
+  html.is-touch .vital + .vital {
+    margin-top: 0;
+    padding-left: 7px;
+    border-left: 1px solid rgba(238, 205, 158, 0.12);
+  }
+  html.is-touch .vital-head { gap: 3px; font-size: 6.5px; letter-spacing: 0.1em; }
+  html.is-touch .vital-num { font-size: 13px; }
+  html.is-touch .vital--armor .vital-num { font-size: 11px; }
+  html.is-touch .vital-seg { margin-top: 2px; gap: 1px; }
+  html.is-touch .vital-seg i { height: 3px; }
   html.is-touch .vital-status { display: none; }
 
   html.is-touch .ammo-panel { padding: 5px 8px 6px; }
@@ -4939,14 +5147,11 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
   html.is-touch .end-actions .mbtn { flex: 1 1 0; width: auto; min-width: 0; min-height: 46px; padding: 7px 10px; }
   html.is-touch .end-foot { display: none; }
 
-  /* frame counter: single compact row keeps the right column clear of the
-     action cluster at 640x320 and 844x390 */
-  html.is-touch .perf-panel { padding: 4px 6px 5px; }
-  html.is-touch .perf-head { display: none; }
-  html.is-touch .perf-fps { font-size: 16px; }
-  html.is-touch .perf-ms { font-size: 6.5px; }
-  /* one row only: the right column must never reach FIRE/ADS at 640x320
-     (measured clearance ~5px after this cap) */
+  /* The telemetry panel would sit exactly behind the raised FIRE button on a
+     phone screen, so the corner is reserved for recon + killfeed (the FPS
+     toggle still shows on tablets/desktop). */
+  html.is-touch .perf-panel { display: none; }
+  /* killfeed keeps a single compact row so it never reaches FIRE's top edge */
   html.is-touch .killfeed { max-height: 16px; }
   html.is-touch .feed-row { font-size: 6.5px; }
 
@@ -4963,7 +5168,16 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
 }
 
 /* ---------------------------------------------------------------------------
-   14.6 §7.3 — Tablets / small windows: (max-width: 1024px)
+   14.5b Very short phones (640x320): FIRE's top edge reaches ~40% of the
+   viewport height while the radar column already ends at ~37%, so a killfeed
+   row would graze the button 鈥?reserve the corner for the radar only.
+   ------------------------------------------------------------------------- */
+@media (max-height: 500px) and (max-width: 720px) {
+  html.is-touch .killfeed { display: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   14.6 搂7.3 鈥?Tablets / small windows: (max-width: 1024px)
    `min-height: 501px` keeps this block from fighting the phone-landscape one.
    ------------------------------------------------------------------------- */
 @media (max-width: 1024px) and (min-height: 501px) {
@@ -4997,7 +5211,7 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
 }
 
 /* ---------------------------------------------------------------------------
-   14.7 §7.4 — Portrait: menu stack + gameplay rotate hint
+   14.7 搂7.4 鈥?Portrait: menu stack + gameplay rotate hint
    ------------------------------------------------------------------------- */
 @media (orientation: portrait) {
   /* gameplay: dim the HUD and make the layer inert under the rotate overlay */
@@ -5279,4 +5493,1677 @@ html.is-touch .deploy-foot { margin-top: 10px; font-size: 7px; letter-spacing: 0
   .deploy-card { padding: 11px 12px 10px; gap: 7px; }
   .deploy-title { margin: 6px 0 12px; }
   .dc-desc em { display: none; }
+}
+
+/* ============================================================================
+   15. UI refactor 鈥?second-level SYSTEM CONFIG overlay + single-column menu
+   ---------------------------------------------------------------------------
+   The home screen no longer embeds the settings / controls panels: they live in
+   `[data-settings]` overlays inside the menu and pause screens and open on
+   demand (`data-action="focus-settings"`). The menu is now a single column.
+   ========================================================================== */
+
+/* Menu: settings moved out of the sidebar 鈫?one content column. */
+.menu-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.menu-main {
+  max-width: 980px;
+}
+
+@media (max-width: 900px) {
+  .menu-main {
+    max-width: none;
+  }
+}
+
+/* --- Settings overlay ------------------------------------------------------ */
+.settings {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(14px, 3vh, 42px) clamp(14px, 3vw, 48px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* Overlay visibility must not depend on a transition frame actually being
+     produced (headless / throttled tabs): show/hide instantly, animate the card
+     only. The card animation has no fill mode, so a stalled animation can never
+     leave the settings menu invisible. */
+}
+
+.settings.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.settings-scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, rgba(12, 8, 5, 0.62), rgba(4, 3, 2, 0.9));
+  backdrop-filter: blur(5px) saturate(0.9);
+  -webkit-backdrop-filter: blur(5px) saturate(0.9);
+  cursor: pointer;
+}
+
+.settings-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 100%);
+  max-height: min(88vh, 880px);
+  background: linear-gradient(180deg, rgba(20, 14, 9, 0.985), rgba(9, 6, 4, 0.985));
+  border: 1px solid rgba(238, 205, 158, 0.2);
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 236, 205, 0.06);
+  clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+  animation: settingsIn 0.3s var(--ease);
+}
+
+@keyframes settingsIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px clamp(16px, 2.2vw, 24px) 13px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.settings-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: var(--amber);
+}
+
+.settings-kicker em {
+  margin-left: 10px;
+  font-family: var(--font-cn);
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  color: var(--sand-3);
+}
+
+.settings-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--sand-2);
+  border: 1px solid rgba(238, 205, 158, 0.22);
+  background: rgba(238, 205, 158, 0.04);
+  transition: all 0.16s ease;
+}
+
+.settings-close:hover,
+.settings-close:focus-visible {
+  color: #170e07;
+  background: linear-gradient(100deg, var(--amber-2), var(--amber));
+  border-color: rgba(255, 220, 170, 0.6);
+  outline: none;
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: clamp(14px, 2vw, 26px);
+  padding: clamp(14px, 2vh, 22px) clamp(16px, 2.2vw, 24px);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 154, 61, 0.4) transparent;
+}
+
+.settings-body .panel {
+  align-self: start;
+  background: rgba(238, 205, 158, 0.028);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.settings-body .controls-list {
+  grid-template-columns: 1fr;
+}
+
+.settings-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px clamp(16px, 2.2vw, 24px) 13px;
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: var(--sand-3);
+  text-transform: uppercase;
+}
+
+.settings-foot em {
+  font-family: var(--font-cn);
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 760px), (max-height: 620px) {
+  .settings { padding: 8px; }
+  .settings-card { max-height: 94vh; }
+  .settings-body { grid-template-columns: 1fr; }
+  .settings-foot em { display: none; }
+}
+
+html.is-touch .settings { padding: 8px; }
+html.is-touch .settings-body { grid-template-columns: 1fr; }
+html.is-touch .settings-card { max-height: calc(100vh - 16px); }
+
+
+/* ============================================================================
+   16. CAMPAIGN UI 鈥?save/campaign menu, stage select, 4-tier difficulty,
+       weapon-slot strip, boss bar, victory unlock line (save-ui workstream)
+   ---------------------------------------------------------------------------
+   Additive section: every rule below only touches new surfaces (campaign menu
+   actions, `[data-stage-select]`, the reworked `[data-deploy]`, `.weapon-slots`,
+   `.boss-bar`, the victory/death/pause campaign lines and the 6th touch button).
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   16.1 Main menu 鈥?three campaign actions + save summary line
+   ------------------------------------------------------------------------- */
+.menu-actions {
+  gap: 8px;
+  max-width: 470px;
+}
+
+.menu-actions .mbtn {
+  min-height: 46px;
+}
+
+.mbtn-copy b {
+  white-space: nowrap;
+}
+
+.mbtn--continue .mbtn-ico,
+.mbtn--stage .mbtn-ico {
+  color: var(--sand-2);
+  background: rgba(238, 205, 158, 0.06);
+  border-color: rgba(238, 205, 158, 0.22);
+}
+
+.mbtn--continue:hover .mbtn-ico,
+.mbtn--stage:hover .mbtn-ico {
+  color: var(--amber);
+  border-color: rgba(255, 154, 61, 0.4);
+}
+
+.mbtn--continue .mbtn-copy em.is-on {
+  color: var(--amber-2);
+  letter-spacing: 0.1em;
+}
+
+.mbtn--continue:disabled .mbtn-copy em,
+.mbtn--continue.is-locked .mbtn-copy em {
+  color: var(--sand-3);
+  opacity: 0.7;
+}
+
+.menu-save {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  max-width: 470px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ms-k {
+  flex: none;
+  color: var(--sand-3);
+}
+
+.ms-v {
+  color: var(--sand-2);
+  letter-spacing: 0.08em;
+}
+
+.ms-v.is-empty {
+  color: #ff9b86;
+}
+
+/* ---------------------------------------------------------------------------
+   16.2 Stage-select overlay (`[data-stage-select]`, inside the menu screen)
+   ------------------------------------------------------------------------- */
+.stage-select {
+  position: absolute;
+  inset: 0;
+  z-index: 31;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(10px, 2.4vh, 30px) clamp(10px, 2.4vw, 34px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.24s var(--ease), visibility 0s linear 0.24s;
+}
+
+.stage-select.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.24s var(--ease), visibility 0s linear 0s;
+}
+
+.stage-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(16, 11, 7, 0.78) 0%, rgba(6, 5, 4, 0.93) 58%, rgba(3, 2, 2, 0.97) 100%);
+  backdrop-filter: blur(6px) saturate(0.9);
+  -webkit-backdrop-filter: blur(6px) saturate(0.9);
+  cursor: pointer;
+}
+
+.stage-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 100%);
+  max-height: calc(100% - 4px);
+  background: linear-gradient(180deg, rgba(22, 16, 11, 0.985), rgba(9, 6, 4, 0.985));
+  border: 1px solid rgba(238, 205, 158, 0.2);
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 236, 205, 0.06);
+  clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+  animation: deployIn 0.3s var(--ease) both;
+}
+
+/* DOM order puts the cards first (controller focus default = first stage); CSS
+   order restores the visual header-first stack. */
+.stage-head { order: 0; }
+.stage-list { order: 1; }
+.stage-foot { order: 2; }
+
+.stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: clamp(13px, 2vh, 18px) clamp(16px, 2.2vw, 24px) clamp(10px, 1.6vh, 14px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.stage-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  color: var(--amber);
+}
+
+.stage-kicker i {
+  width: 16px;
+  height: 1px;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(255, 154, 61, 0.4);
+}
+
+.stage-title {
+  margin: 5px 0 0;
+  font-family: var(--font-mono);
+  font-size: clamp(18px, 2.1vw, 27px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--sand-0);
+}
+
+.stage-title span {
+  margin-left: 10px;
+  font-family: var(--font-cn);
+  font-size: clamp(11px, 1.1vw, 15px);
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: var(--sand-2);
+}
+
+.stage-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--sand-2);
+  border: 1px solid rgba(238, 205, 158, 0.22);
+  background: rgba(238, 205, 158, 0.04);
+  transition: all 0.16s ease;
+}
+
+.stage-close:hover,
+.stage-close:focus-visible {
+  color: #170e07;
+  background: linear-gradient(100deg, var(--amber-2), var(--amber));
+  border-color: rgba(255, 220, 170, 0.6);
+  outline: none;
+}
+
+.stage-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: clamp(8px, 1.1vw, 14px);
+  padding: clamp(12px, 1.8vh, 18px) clamp(14px, 2vw, 22px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 154, 61, 0.4) transparent;
+}
+
+.stage-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.2vw, 16px);
+  width: 100%;
+  min-height: clamp(78px, 10.4vh, 104px);
+  padding: clamp(12px, 1.7vh, 18px) clamp(13px, 1.5vw, 20px);
+  text-align: left;
+  color: var(--sand-1);
+  background: linear-gradient(150deg, rgba(40, 29, 18, 0.66), rgba(13, 10, 7, 0.82));
+  border: 1px solid rgba(238, 205, 158, 0.16);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.stage-card::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 46px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--amber), rgba(255, 154, 61, 0));
+  pointer-events: none;
+}
+
+.stage-card:hover,
+.stage-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(255, 200, 140, 0.5);
+  background: linear-gradient(150deg, rgba(58, 38, 20, 0.74), rgba(18, 13, 8, 0.86));
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 154, 61, 0.16);
+  outline: none;
+}
+
+.stage-card.is-cleared {
+  border-color: rgba(141, 255, 201, 0.26);
+}
+
+.stage-card.is-cleared::before {
+  background: linear-gradient(90deg, var(--green), rgba(141, 255, 201, 0));
+}
+
+.stage-card.is-progress {
+  border-color: rgba(124, 231, 255, 0.3);
+}
+
+.stage-card.is-progress::before {
+  background: linear-gradient(90deg, var(--cyan), rgba(124, 231, 255, 0));
+}
+
+.stage-card.is-locked {
+  cursor: not-allowed;
+  opacity: 0.52;
+  background: linear-gradient(150deg, rgba(22, 17, 13, 0.8), rgba(10, 8, 6, 0.8));
+  border-color: rgba(238, 205, 158, 0.1);
+}
+
+.stage-card.is-locked::before {
+  background: rgba(238, 205, 158, 0.14);
+}
+
+.stage-card.is-locked:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: rgba(238, 205, 158, 0.1);
+}
+
+.sc-index {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 54px;
+  padding-right: clamp(8px, 1vw, 14px);
+  border-right: 1px solid rgba(238, 205, 158, 0.12);
+  font-family: var(--font-mono);
+  font-size: clamp(26px, 2.6vw, 38px);
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: 0.02em;
+  color: var(--amber-2);
+  text-shadow: 0 0 18px rgba(255, 154, 61, 0.22);
+}
+
+.sc-index i {
+  margin-top: 3px;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--sand-3);
+}
+
+.stage-card.is-cleared .sc-index {
+  color: var(--green);
+  text-shadow: 0 0 18px rgba(141, 255, 201, 0.2);
+}
+
+.sc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sc-name {
+  font-size: clamp(13px, 1.25vw, 17px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--sand-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sc-sub {
+  font-family: var(--font-cn);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--sand-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sc-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.12em;
+}
+
+.sc-threat {
+  padding: 1px 5px;
+  color: #ffb4a2;
+  border: 1px solid rgba(255, 74, 52, 0.34);
+  background: rgba(255, 74, 52, 0.08);
+}
+
+.sc-diff {
+  padding: 1px 5px;
+  color: var(--sand-2);
+  border: 1px solid rgba(238, 205, 158, 0.24);
+  background: rgba(238, 205, 158, 0.05);
+}
+
+.sc-diff em {
+  margin-left: 4px;
+  font-family: var(--font-cn);
+  font-style: normal;
+  font-size: 7.5px;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+
+.sc-diff--easy { color: var(--green); border-color: rgba(141, 255, 201, 0.32); background: rgba(141, 255, 201, 0.07); }
+.sc-diff--normal { color: var(--sand-1); }
+.sc-diff--hard { color: var(--amber-2); border-color: rgba(255, 196, 119, 0.36); background: rgba(255, 154, 61, 0.07); }
+.sc-diff--nightmare { color: #ff9b86; border-color: rgba(255, 74, 52, 0.42); background: rgba(255, 74, 52, 0.1); }
+
+.sc-best {
+  color: var(--sand-3);
+}
+
+.sc-state {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  text-align: right;
+}
+
+.sc-state b {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--amber-2);
+}
+
+.sc-state em {
+  font-family: var(--font-cn);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: var(--sand-3);
+}
+
+.stage-card.is-cleared .sc-state b { color: var(--green); }
+.stage-card.is-progress .sc-state b { color: var(--cyan); }
+.stage-card.is-locked .sc-state b { color: var(--sand-3); }
+
+.sc-lock {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--sand-3);
+  opacity: 0.8;
+}
+
+.stage-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: clamp(8px, 1.4vh, 11px) clamp(16px, 2.2vw, 24px) clamp(10px, 1.6vh, 13px);
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sand-3);
+}
+
+.stage-save.is-empty {
+  color: #ff9b86;
+}
+
+.stage-tip {
+  text-align: right;
+  color: var(--sand-3);
+  opacity: 0.85;
+}
+
+/* ---------------------------------------------------------------------------
+   16.3 Deployment dialog 鈥?4 difficulty cards + campaign mode copy
+   ------------------------------------------------------------------------- */
+.deploy {
+  padding: clamp(8px, 2vh, 28px) clamp(8px, 2vw, 28px);
+  transition: opacity 0.26s var(--ease), visibility 0s linear 0.26s;
+}
+
+.deploy.is-open {
+  transition: opacity 0.26s var(--ease), visibility 0s linear 0s;
+}
+
+.deploy-panel {
+  width: min(1040px, calc(100% - 32px));
+  max-height: calc(100% - 8px);
+  display: flex;
+  flex-direction: column;
+  padding: clamp(16px, 2.4vh, 26px) clamp(16px, 2.6vw, 34px) clamp(12px, 1.8vh, 18px);
+}
+
+.deploy-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 7px 0 4px;
+  font-size: clamp(19px, 2.2vw, 28px);
+}
+
+.deploy-title span {
+  display: inline;
+  margin-top: 0;
+}
+
+.deploy-title .deploy-title-cn {
+  font-size: clamp(11px, 1.1vw, 15px);
+  letter-spacing: 0.18em;
+  color: var(--sand-2);
+}
+
+.deploy-stage {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sand-2);
+  text-align: center;
+}
+
+.deploy-warning {
+  display: none;
+  align-self: center;
+  margin: 8px auto 0;
+  max-width: 760px;
+  padding: 5px 12px;
+  font-family: var(--font-cn);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: #ffb4a2;
+  border: 1px solid rgba(255, 74, 52, 0.36);
+  background: rgba(255, 74, 52, 0.09);
+}
+
+.deploy-warning.is-on {
+  display: block;
+  animation: deployWarnIn 0.2s ease both;
+}
+
+.deploy-warning[hidden] {
+  display: none !important;
+}
+
+@keyframes deployWarnIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.deploy-options {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(8px, 1vw, 14px);
+  margin-top: clamp(10px, 1.6vh, 16px);
+  overflow: visible;
+}
+
+.deploy-card {
+  min-height: 164px;
+  padding: 13px 13px 11px;
+  gap: 8px;
+}
+
+.deploy-card--easy { border-color: rgba(141, 255, 201, 0.2); }
+.deploy-card--normal { border-color: rgba(238, 205, 158, 0.2); }
+.deploy-card--hard { border-color: rgba(255, 196, 119, 0.26); }
+.deploy-card--nightmare { border-color: rgba(255, 74, 52, 0.3); }
+
+.deploy-card--easy:hover,
+.deploy-card--easy:focus-visible {
+  border-color: rgba(141, 255, 201, 0.6);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(141, 255, 201, 0.2);
+}
+
+.deploy-card--hard:hover,
+.deploy-card--hard:focus-visible {
+  border-color: rgba(255, 196, 119, 0.62);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 196, 119, 0.2);
+}
+
+.deploy-card--nightmare:hover,
+.deploy-card--nightmare:focus-visible {
+  border-color: rgba(255, 120, 96, 0.66);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 74, 52, 0.24);
+}
+
+.dc-stats {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.dc-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.dc-stat i {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 7px;
+  letter-spacing: 0.16em;
+  color: var(--sand-3);
+}
+
+.dc-stat b {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--amber-2);
+}
+
+.deploy-card--easy .dc-stat b { color: var(--green); }
+.deploy-card--normal .dc-stat b { color: var(--sand-0); }
+.deploy-card--hard .dc-stat b { color: #ffc477; }
+.deploy-card--nightmare .dc-stat b { color: #ff8a6a; }
+
+.dc-desc {
+  font-family: var(--font-cn);
+  font-size: 9.5px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--sand-2);
+}
+
+.dc-desc em {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-display);
+  font-style: normal;
+  font-size: 8px;
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  color: rgba(220, 197, 162, 0.42);
+}
+
+.dc-tag {
+  margin-top: auto;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.13em;
+  color: var(--sand-3);
+  background: none;
+}
+
+.deploy-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: clamp(10px, 1.6vh, 15px);
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.deploy-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--sand-2);
+  border: 1px solid rgba(238, 205, 158, 0.24);
+  background: rgba(238, 205, 158, 0.04);
+  transition: all 0.16s ease;
+}
+
+.deploy-back em {
+  font-family: var(--font-cn);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--sand-3);
+}
+
+.deploy-back:hover,
+.deploy-back:focus-visible {
+  color: #170e07;
+  background: linear-gradient(100deg, var(--amber-2), var(--amber));
+  border-color: rgba(255, 220, 170, 0.6);
+  outline: none;
+}
+
+.deploy-back:hover em,
+.deploy-back:focus-visible em {
+  color: rgba(23, 14, 7, 0.65);
+}
+
+.deploy-tip {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-align: right;
+  color: var(--sand-3);
+}
+
+@media (max-width: 900px) {
+  .deploy-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .deploy-card {
+    min-height: 142px;
+  }
+}
+
+@media (max-height: 620px) {
+  .deploy {
+    padding: 6px;
+  }
+
+  .deploy-panel {
+    width: min(1040px, calc(100% - 12px));
+    padding: 12px 16px 10px;
+  }
+
+  .deploy-title {
+    margin: 3px 0 2px;
+    font-size: 18px;
+  }
+
+  .deploy-stage {
+    font-size: 8px;
+  }
+
+  .deploy-warning {
+    margin-top: 5px;
+    padding: 3px 9px;
+    font-size: 8.5px;
+  }
+
+  .deploy-options {
+    margin-top: 8px;
+    gap: 7px;
+  }
+
+  .deploy-card {
+    min-height: 0;
+    padding: 8px 9px 7px;
+    gap: 5px;
+  }
+
+  .dc-top b { font-size: 12px; }
+  .dc-desc { font-size: 8.5px; line-height: 1.35; }
+  .dc-desc em { display: none; }
+  .dc-tag { display: none; }
+  .deploy-foot { margin-top: 7px; padding-top: 6px; }
+  .deploy-tip { display: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   16.4 HUD 鈥?wave-panel stage row + difficulty tone
+   ------------------------------------------------------------------------- */
+.wave-stage {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(238, 205, 158, 0.1);
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.ws-k {
+  flex: none;
+  font-size: 7px;
+  letter-spacing: 0.2em;
+  color: var(--sand-3);
+}
+
+.ws-index {
+  flex: none;
+  font-weight: 600;
+  color: var(--amber-2);
+}
+
+.ws-name {
+  min-width: 0;
+  color: var(--sand-1);
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wave-stage.is-empty {
+  opacity: 0.55;
+}
+
+.wave-mode.is-easy {
+  color: var(--green);
+  border-color: rgba(141, 255, 201, 0.38);
+  background: rgba(141, 255, 201, 0.08);
+}
+
+.wave-mode.is-normal {
+  color: var(--sand-1);
+  border-color: rgba(238, 205, 158, 0.24);
+  background: rgba(238, 205, 158, 0.05);
+}
+
+.wave-mode.is-hard {
+  color: var(--amber-2);
+  border-color: rgba(255, 196, 119, 0.42);
+  background: rgba(255, 154, 61, 0.08);
+}
+
+.wave-mode.is-nightmare {
+  color: #ffb4a2;
+  border-color: rgba(255, 74, 52, 0.46);
+  background: rgba(255, 74, 52, 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   16.5 HUD 鈥? 4-slot weapon strip above the ammo panel
+   ------------------------------------------------------------------------- */
+.hud-bottom-right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.weapon-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  pointer-events: none;
+}
+
+.wslot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  min-width: 0;
+  padding: 4px 6px 5px;
+  text-align: left;
+  color: var(--sand-2);
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(16, 12, 8, 0.82), rgba(8, 6, 4, 0.74));
+  border: 1px solid rgba(238, 205, 158, 0.14);
+  clip-path: polygon(5px 0, 100% 0, 100% 100%, 0 100%, 0 5px);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.wslot::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.wslot.is-active {
+  border-color: rgba(255, 154, 61, 0.62);
+  background: linear-gradient(180deg, rgba(66, 40, 19, 0.92), rgba(20, 13, 8, 0.88));
+  box-shadow: 0 0 16px rgba(255, 154, 61, 0.18);
+  opacity: 1;
+}
+
+.wslot.is-active::before {
+  background: linear-gradient(90deg, var(--amber), rgba(255, 154, 61, 0));
+  box-shadow: 0 0 8px rgba(255, 154, 61, 0.4);
+}
+
+.wslot.is-empty {
+  opacity: 0.42;
+  border-style: dashed;
+  background: rgba(10, 8, 6, 0.55);
+}
+
+.wslot.is-empty .wslot-name,
+.wslot.is-empty .wslot-ammo {
+  color: var(--sand-3);
+}
+
+.wslot-key {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  color: var(--sand-3);
+}
+
+.wslot.is-active .wslot-key {
+  color: var(--amber);
+}
+
+.wslot-name {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  line-height: 1.2;
+  color: var(--sand-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wslot.is-active .wslot-name {
+  color: var(--sand-0);
+}
+
+.wslot-ammo {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1.15;
+  color: var(--sand-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wslot-ammo b {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--sand-0);
+}
+
+.wslot-ammo i {
+  font-style: normal;
+  opacity: 0.45;
+}
+
+.wslot-ammo span {
+  font-size: 7px;
+  color: var(--sand-3);
+}
+
+/* Ammo hint is now a permanent line (reload + weapon switch keys) ---------- */
+.ammo-hint {
+  display: block;
+  margin-top: 5px;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--sand-3);
+  text-align: right;
+  animation: none;
+  white-space: nowrap;
+}
+
+.ammo-hint em {
+  color: rgba(220, 197, 162, 0.42);
+  letter-spacing: 0.04em;
+}
+
+.ui-root.is-empty .ammo-hint {
+  display: block;
+  color: var(--red);
+  animation: hintBlink 0.8s steps(2) infinite;
+}
+
+.ui-root.is-empty .ammo-hint em {
+  color: rgba(255, 74, 52, 0.55);
+}
+
+/* ---------------------------------------------------------------------------
+   16.6 HUD 鈥?boss bar (bottom centre)
+   ------------------------------------------------------------------------- */
+.boss-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--letterbox) + 24px);
+  z-index: 3;
+  width: min(640px, 42vw);
+  padding: 8px 14px 10px;
+  background: linear-gradient(180deg, rgba(34, 12, 9, 0.9), rgba(10, 5, 4, 0.88));
+  border: 1px solid rgba(255, 74, 52, 0.32);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 200, 170, 0.06);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease), visibility 0.3s;
+}
+
+.boss-bar.is-active {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.boss-bar.is-dead {
+  transition: opacity 1.2s ease, transform 1.2s ease, visibility 1.2s;
+  opacity: 0;
+  transform: translate(-50%, -4px);
+}
+
+/* While the boss bar is up it owns the bottom-centre strip; mute the watermark
+   underneath instead of letting both stack. */
+.boss-bar.is-active ~ .hud-watermark,
+.boss-bar.is-dead ~ .hud-watermark {
+  opacity: 0;
+  transition: opacity 0.24s ease;
+}
+
+.boss-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.boss-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.24em;
+  color: var(--red);
+}
+
+.boss-kicker i {
+  width: 14px;
+  height: 1px;
+  background: var(--red);
+  box-shadow: 0 0 8px rgba(255, 74, 52, 0.6);
+}
+
+.boss-name {
+  font-size: clamp(12px, 1.1vw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffd9c6;
+  text-shadow: 0 0 18px rgba(255, 74, 52, 0.3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.boss-hp {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--sand-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.boss-hp.is-dead {
+  color: var(--green);
+  letter-spacing: 0.12em;
+}
+
+.boss-track {
+  margin-top: 6px;
+  height: 7px;
+  background: rgba(255, 74, 52, 0.12);
+  border: 1px solid rgba(255, 74, 52, 0.22);
+  overflow: hidden;
+}
+
+.boss-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #ff3a22, #ff8a3c 58%, #ffc477);
+  box-shadow: 0 0 14px rgba(255, 74, 52, 0.55);
+  transition: width 0.18s ease;
+}
+
+/* ---------------------------------------------------------------------------
+   16.7 Result screens 鈥?campaign stage / unlock / redeploy lines
+   ------------------------------------------------------------------------- */
+.end-stage {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--sand-0);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 14px rgba(0, 0, 0, 0.8);
+}
+
+.end-unlock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(600px, 84vw);
+  margin-top: clamp(8px, 1.4vh, 14px);
+  padding: 7px 16px;
+  border: 1px solid var(--hairline-strong);
+  background: rgba(238, 205, 158, 0.05);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+.end-unlock .eu-mark {
+  font-size: 12px;
+  color: var(--amber);
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+
+.end-unlock .eu-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+}
+
+.end-unlock b {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  color: var(--sand-0);
+}
+
+.end-unlock em {
+  font-family: var(--font-cn);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--sand-2);
+}
+
+.end-unlock.is-unlock {
+  border-color: rgba(255, 154, 61, 0.42);
+  background: rgba(255, 154, 61, 0.07);
+}
+
+.end-unlock.is-unlock b { color: var(--amber-2); }
+.end-unlock.is-unlock .eu-mark { color: var(--amber-2); }
+
+.end-unlock.is-final {
+  border-color: rgba(141, 255, 201, 0.36);
+  background: rgba(141, 255, 201, 0.06);
+}
+
+.end-unlock.is-final b { color: var(--green); }
+.end-unlock.is-final .eu-mark { color: var(--green); }
+
+.end-hint {
+  font-family: var(--font-cn);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--sand-3);
+}
+
+.screen--victory .end-actions {
+  width: min(880px, 92vw);
+}
+
+.screen--victory .end-actions .mbtn {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.screen--victory .end-actions .mbtn-copy,
+.screen--death .end-actions .mbtn-copy {
+  min-width: 0;
+}
+
+.screen--victory .end-actions .mbtn-copy em,
+.screen--death .end-actions .mbtn-copy em {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* `[hidden]` must beat the `.mbtn { display: flex }` rule used by every action
+   row (the NEXT STAGE button is hidden on a single-stage campaign clear). */
+.end-actions .mbtn[hidden],
+.mbtn[hidden] {
+  display: none !important;
+}
+
+/* Pause campaign readout --------------------------------------------------- */
+.pause-stage {
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sand-2);
+}
+
+.pause-stage.is-empty {
+  color: var(--sand-3);
+  opacity: 0.7;
+}
+
+.rs--wide {
+  grid-column: 1 / -1;
+}
+
+[data-pause-diff][data-tone='easy'] { color: var(--green); }
+[data-pause-diff][data-tone='normal'] { color: var(--sand-0); }
+[data-pause-diff][data-tone='hard'] { color: var(--amber-2); }
+[data-pause-diff][data-tone='nightmare'] { color: #ff8a6a; }
+
+/* ---------------------------------------------------------------------------
+   16.8 Touch layer 鈥?6th SWITCH button + compact campaign surfaces
+   ------------------------------------------------------------------------- */
+.touch-btn--switch {
+  --tb-btn: var(--tb-small);
+  --tb-left: 94%;
+  --tb-top: 69.5%;
+}
+
+.touch-btn--switch .tb-glyph {
+  font-size: calc(var(--tb-btn) * 0.42);
+}
+
+html.is-touch .wave-stage {
+  margin-top: 5px;
+  padding-top: 4px;
+  font-size: 6.5px;
+  letter-spacing: 0.1em;
+  gap: 4px;
+}
+
+html.is-touch .ws-k { display: none; }
+
+html.is-touch .weapon-slots {
+  gap: 3px;
+}
+
+html.is-touch .wslot {
+  padding: 3px 4px 4px;
+}
+
+html.is-touch .wslot-name {
+  font-size: 7.5px;
+  letter-spacing: 0.02em;
+}
+
+html.is-touch .wslot-key {
+  font-size: 6px;
+}
+
+html.is-touch .wslot-ammo {
+  font-size: 7px;
+}
+
+html.is-touch .wslot-ammo b {
+  font-size: 7.5px;
+}
+
+html.is-touch .ammo-hint {
+  display: none;
+}
+
+html.is-touch .boss-bar {
+  width: min(460px, 42vw);
+  bottom: calc(var(--letterbox) + 86px);
+  padding: 6px 10px 7px;
+}
+
+html.is-touch .boss-kicker {
+  font-size: 7px;
+  letter-spacing: 0.18em;
+}
+
+html.is-touch .boss-name {
+  font-size: 11px;
+}
+
+html.is-touch .boss-hp {
+  font-size: 8px;
+}
+
+html.is-touch .boss-track {
+  height: 6px;
+  margin-top: 4px;
+}
+
+/* Menu / stage-select / difficulty on touch --------------------------------- */
+html.is-touch .menu-save {
+  margin-top: 8px;
+  font-size: 7px;
+}
+
+html.is-touch .stage-select {
+  padding: 8px;
+}
+
+html.is-touch .stage-panel {
+  width: 100%;
+  max-height: calc(100% - 4px);
+}
+
+html.is-touch .stage-head {
+  padding: 10px 12px 9px;
+}
+
+html.is-touch .stage-kicker {
+  font-size: 7px;
+  letter-spacing: 0.2em;
+}
+
+html.is-touch .stage-title {
+  font-size: 17px;
+}
+
+html.is-touch .stage-title span {
+  font-size: 11px;
+}
+
+html.is-touch .stage-close {
+  width: 34px;
+  height: 34px;
+}
+
+html.is-touch .stage-list {
+  padding: 9px 10px;
+  gap: 8px;
+}
+
+html.is-touch .stage-card {
+  padding: 9px 11px;
+  gap: 10px;
+}
+
+html.is-touch .sc-name { font-size: 13px; }
+html.is-touch .sc-sub { font-size: 9px; }
+html.is-touch .sc-diff em { display: none; }
+html.is-touch .stage-foot { padding: 7px 12px 9px; font-size: 7px; }
+html.is-touch .stage-tip { display: none; }
+
+html.is-touch .deploy-panel {
+  width: min(1040px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 14px 11px;
+}
+
+html.is-touch .deploy-title {
+  margin: 4px 0 2px;
+  font-size: 19px;
+}
+
+html.is-touch .deploy-title .deploy-title-cn {
+  font-size: 11px;
+}
+
+html.is-touch .deploy-stage {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+html.is-touch .deploy-warning {
+  margin-top: 6px;
+  padding: 4px 9px;
+  font-size: 8.5px;
+}
+
+html.is-touch .deploy-options {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+html.is-touch .deploy-card {
+  min-height: 0;
+  padding: 9px 10px 8px;
+  gap: 5px;
+}
+
+html.is-touch .dc-top b { font-size: 12.5px; }
+html.is-touch .dc-top em { font-size: 9.5px; }
+html.is-touch .dc-desc { font-size: 8.5px; line-height: 1.4; }
+html.is-touch .dc-desc em { display: none; }
+html.is-touch .dc-tag { display: none; }
+html.is-touch .deploy-foot {
+  display: flex;
+  margin-top: 8px;
+  padding-top: 7px;
+}
+html.is-touch .deploy-tip { display: none; }
+html.is-touch .deploy-back { min-height: 40px; padding: 8px 14px; font-size: 10px; }
+
+/* Short landscape phones (844x390 / 932x430): tighter campaign chrome ------ */
+@media (max-height: 500px) {
+  html.is-touch .menu-actions {
+    gap: 7px;
+  }
+
+  html.is-touch .menu-actions .mbtn {
+    min-height: 48px;
+  }
+
+  html.is-touch .menu-save {
+    margin-top: 6px;
+    padding-top: 5px;
+    font-size: 6.5px;
+    letter-spacing: 0.08em;
+  }
+
+  html.is-touch .menu-save .ms-k {
+    display: none;
+  }
+
+  html.is-touch .stage-list {
+    grid-template-columns: 1fr;
+  }
+
+  html.is-touch .stage-card {
+    padding: 7px 10px;
+  }
+
+  html.is-touch .sc-index {
+    min-width: 38px;
+    font-size: 22px;
+  }
+
+  html.is-touch .stage-foot {
+    padding: 5px 10px 7px;
+  }
+
+  html.is-touch .deploy-panel {
+    padding: 10px 12px 9px;
+  }
+
+  html.is-touch .deploy-title {
+    font-size: 17px;
+    margin: 2px 0 1px;
+  }
+
+  html.is-touch .deploy-stage {
+    display: none;
+  }
+
+  html.is-touch .deploy-options {
+    margin-top: 7px;
+    gap: 7px;
+  }
+
+  html.is-touch .deploy-card {
+    padding: 7px 8px 6px;
+    gap: 4px;
+  }
+
+  html.is-touch .dc-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 8px;
+  }
+
+  html.is-touch .deploy-foot {
+    display: flex;
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  html.is-touch .deploy-back {
+    min-height: 34px;
+    padding: 6px 11px;
+    font-size: 9px;
+  }
+
+  html.is-touch .end-unlock {
+    margin-top: 5px;
+    padding: 4px 10px;
+    gap: 7px;
+  }
+
+  html.is-touch .end-unlock b { font-size: 8px; letter-spacing: 0.18em; }
+  html.is-touch .end-unlock em { font-size: 8px; }
+  html.is-touch .end-stage { font-size: 8px; letter-spacing: 0.16em; }
+  html.is-touch .end-hint { display: none; }
+  html.is-touch .pause-stage { font-size: 8px; margin-top: 4px; }
+}
+
+/* Portrait phones: campaign surfaces stay inside the narrow viewport ------ */
+@media (orientation: portrait) {
+  html.is-touch .deploy-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  html.is-touch .dc-tag {
+    display: none;
+  }
+
+  html.is-touch .deploy-card {
+    min-height: 118px;
+  }
+
+  html.is-touch .stage-title {
+    font-size: 16px;
+  }
+
+  html.is-touch .stage-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 640px) and (min-width: 901px) {
+  .deploy-card {
+    min-height: 0;
+    padding: 10px 12px 9px;
+    gap: 6px;
+  }
+
+  .dc-desc em {
+    display: none;
+  }
+
+  .dc-tag {
+    display: none;
+  }
+
+  .deploy-panel {
+    padding-top: 14px;
+    padding-bottom: 12px;
+  }
 }

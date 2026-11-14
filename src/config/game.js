@@ -69,7 +69,14 @@ export const CONFIG = Object.freeze({
     vitalHealthGain: 0.10,
     damageReductionCap: 0.60,
     maxHealthCap: 500,
-    maxHealthBonusCap: 300,     // persistence clamp (standard mode redeploy)
+    maxHealthBonusCap: 300,     // stage-to-stage inheritance clamp
+    /**
+     * Boss weapon drops — the only source of new guns. The SIEGE WARDEN rolls
+     * this chance once when it dies and, on a hit, drops `bossWeaponDropCount`
+     * weapon pickups (one of the not-yet-owned weapon types). 0.05 = 5%.
+     */
+    bossWeaponDropChance: 0.05,
+    bossWeaponDropCount: 1,
   },
   colors: {
     sand: 0xc99a62,

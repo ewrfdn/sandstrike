@@ -1,0 +1,66 @@
+{
+  "sky": {
+    "sunDirection": [-0.893, 0.305, 0.333],
+    "zenith": [0.1, 0.235, 0.52],
+    "horizon": [1.34, 0.78, 0.36],
+    "dust": [0.52, 0.29, 0.14],
+    "sunColor": [2.6, 1.7, 0.9],
+    "cloudColor": [1.5, 1.16, 0.88],
+    "groundColor": [0.26, 0.17, 0.1],
+    "domeRadius": 340
+  },
+  "fog": {
+    "color": "#d7a06c",
+    "density": 0.0104
+  },
+  "background": "#d8a877",
+  "lights": {
+    "sun": {
+      "color": "#ffd2a0",
+      "intensity": 3.55,
+      "distance": 130,
+      "target": [0, 0, -2],
+      "shadow": {
+        "ortho": [-46, 46, 46, -46],
+        "near": 30,
+        "far": 290,
+        "bias": -0.00045,
+        "normalBias": 0.055,
+        "radius": 2.2
+      }
+    },
+    "hemisphere": {
+      "skyColor": "#8fb2d8",
+      "groundColor": "#cf9a60",
+      "intensity": 0.82
+    },
+    "ambient": {
+      "color": "#5b4130",
+      "intensity": 0.17
+    },
+    "bounce": {
+      "color": "#ffb27a",
+      "intensity": 0.58,
+      "position": [75, 18, -55],
+      "target": [0, 0, 0]
+    },
+    "sunPulse": {
+      "amplitude": 0.08,
+      "speed": 0.05
+    }
+  },
+  "environmentMap": {
+    "intensity": 0.55,
+    "groundColor": [0.24, 0.16, 0.095],
+    "cardColor": [1.4, 0.9, 0.55],
+    "cardDistance": 55,
+    "groundRadius": 120,
+    "sphereRadius": 80,
+    "blur": 0.03
+  },
+  "ambience": {
+    "lanternGlowScale": 620,
+    "dustSpread": 64,
+    "dustY": [0.2, 8.7]
+  }
+}

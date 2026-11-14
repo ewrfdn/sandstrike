@@ -1,18 +1,32 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import {
+  CONFIG,
+  DEFAULT_DIFFICULTY_ID,
+  DEFAULT_STAGE_ID,
+  STAGE_TOTAL,
+  getDifficulty,
+  getStage,
+  getStageByIndex,
+  nextStage,
+} from './config/index.js';
+import * as Progress from './save.js';
 import { bus, emit, on } from './bus.js';
 import { Effects } from './effects.js';
 import { EnemyManager } from './enemies.js';
 import { WeaponSystem } from './weapons.js';
 import { Player } from './player.js';
 import { PostFX } from './postfx.js';
-import { UI } from './ui.js';
+import { UI } from './ui/index.js';
 import { GameAudio } from './audio.js';
 import { TouchControls, detectTouchMode } from './touch.js';
+import { GamepadControls, detectGamepadSupport } from './gamepad.js';
 
 const canvas = document.getElementById('scene');
 const params = new URLSearchParams(location.search);
 const isDev = params.has('dev');
+// Optional map selection: `?map=<id>` picks one folder from src/config/maps/.
+// Unknown ids are ignored by createWorld(), which falls back to the default map.
+const requestedMapId = params.get('map') || null;
 
 // Dev-only shortcut to the isolated model viewer (models.html is gated by ?dev).
 if (isDev) {
@@ -49,7 +63,7 @@ if (touchMode) document.documentElement.classList.add('is-touch');
 // ---------------------------------------------------------------------------
 /** Render-quality tiers, cheapest first. Keep in sync with src/ui.js QUALITIES. */
 const QUALITY_IDS = ['lowest', 'low', 'medium', 'high', 'ultra'];
-const DEFAULT_SETTINGS = { sensitivity: 1.0, volume: 0.8, quality: 'high', muted: false, difficulty: 'standard' };
+const DEFAULT_SETTINGS = { sensitivity: 1.0, volume: 0.8, quality: 'high', muted: false, vibrate: true };
 function loadSettings() {
   let stored = false;
   try {
@@ -67,40 +81,27 @@ const settings = loadSettings();
 // choice by the player still wins (only first-touch-device visits are forced).
 if (touchMode && !params.has('quality') && !settings.__stored) settings.quality = 'medium';
 if (QUALITY_IDS.includes(params.get('quality'))) settings.quality = params.get('quality');
-if (params.get('difficulty') === 'hardcore' || params.get('difficulty') === 'standard') settings.difficulty = params.get('difficulty');
 let currentQuality = QUALITY_IDS.includes(settings.quality) ? settings.quality : 'high';
-/** 'standard' keeps loot upgrades after death, 'hardcore' wipes them. */
-let currentDifficulty = settings.difficulty === 'hardcore' ? 'hardcore' : 'standard';
 
 // ---------------------------------------------------------------------------
-// Carried upgrades (standard mode keeps loot after death)
+// Campaign progression (src/save.js) — one save slot per configured stage.
+// The save is written ONLY when a stage is entered or cleared; death, pause,
+// going back to the menu and page reloads mid-stage never write progression.
 // ---------------------------------------------------------------------------
-const CARRIED_KEY = 'sandstrike.carried.v1';
-function loadCarried() {
-  try {
-    const raw = localStorage.getItem(CARRIED_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object') return null;
-    return {
-      weapon: data.weapon && typeof data.weapon === 'object' ? data.weapon : null,
-      armorBonus: Number.isFinite(data.armorBonus) ? Math.max(0, Math.min(300, data.armorBonus)) : 0,
-      healthBonus: Number.isFinite(data.healthBonus) ? Math.max(0, Math.min(CONFIG.loot?.maxHealthBonusCap ?? 300, data.healthBonus)) : 0,
-      damageReduction: Number.isFinite(data.damageReduction)
-        ? THREE.MathUtils.clamp(data.damageReduction, 0, CONFIG.loot?.damageReductionCap ?? 0.6)
-        : 0,
-    };
-  } catch {
-    return null;
-  }
+/** Last loaded campaign save (null = fresh install / no save). */
+let progress = Progress.loadProgress();
+/** Difficulty id of the run in progress (one of src/config/difficulty.js ids). */
+let currentDifficultyId = (progress && progress.lastDifficulty) || DEFAULT_DIFFICULTY_ID;
+if (params.get('difficulty')) {
+  const requested = getDifficulty(params.get('difficulty'));
+  if (requested && requested.id) currentDifficultyId = requested.id;
 }
-function saveCarried(data) {
-  try {
-    if (!data) localStorage.removeItem(CARRIED_KEY);
-    else localStorage.setItem(CARRIED_KEY, JSON.stringify(data));
-  } catch { /* private mode */ }
-}
-let carriedUpgrades = loadCarried();
+/** Stage config object of the run in progress (null before the first deploy). */
+let currentStage = null;
+/** Run-state snapshot the current stage started from (restart/inheritance). */
+let stageRunState = Progress.emptyRunState(currentDifficultyId);
+/** True once the stage-end snapshot has been written (guards double victory). */
+let stageEndRecorded = false;
 
 // ---------------------------------------------------------------------------
 // Renderer / scene
@@ -184,6 +185,10 @@ const game = {
   startedAt: 0,
   deathTime: 0,
   pausedAt: 0,
+  stageId: null,
+  stageIndex: 0,
+  stageTotal: STAGE_TOTAL,
+  difficulty: currentDifficultyId,
 };
 
 let world = null;
@@ -193,11 +198,13 @@ let weapon = null;
 let player = null;
 let postfx = null;
 let touch = null;
+let gamepad = null;
 let loaded = false;
 let defeated = false;
 let victoryHandled = false;
 let hasLockedOnce = false;
 let ignoreResumeUntil = 0;
+let resumeRetryTimer = 0;
 let statsAccumulator = 0;
 let lastFrame = performance.now();
 let lowHealth = 0;
@@ -241,17 +248,48 @@ function showFatal(message, error) {
 // ---------------------------------------------------------------------------
 // UI / gameplay events
 // ---------------------------------------------------------------------------
-on('ui:start', () => {
+on('ui:start', (detail = {}) => {
   if (!loaded || game.state === 'playing') return;
-  startRun();
+  // Legacy bridge for older automation that dispatches ui:start directly after
+  // the START click: continue an existing campaign, else start a new one.
+  const requested = detail.difficulty ? getDifficulty(detail.difficulty) : null;
+  if (progress) continueCampaign();
+  else newCampaign(requested ? requested.id : currentDifficultyId);
 });
-on('ui:restart', () => {
+on('ui:new-game', (detail = {}) => {
   if (!loaded) return;
-  startRun();
+  newCampaign(detail.difficulty || currentDifficultyId || DEFAULT_DIFFICULTY_ID);
+});
+on('ui:continue', () => {
+  if (!loaded) return;
+  continueCampaign();
+});
+on('ui:select-stage', (detail = {}) => {
+  if (!loaded) return;
+  selectStage(detail.stageId, detail.difficulty || currentDifficultyId);
+});
+on('ui:next-stage', () => {
+  if (!loaded) return;
+  nextStageRun();
+});
+on('ui:restart', (detail = {}) => {
+  if (!loaded) return;
+  if (currentStage) restartStage(detail.difficulty || currentDifficultyId);
+  else if (progress) continueCampaign();
+  else newCampaign(detail.difficulty || currentDifficultyId);
 });
 on('ui:resume', () => {
-  if (performance.now() < ignoreResumeUntil) return;
-  resumeGame();
+  if (game.state !== 'paused') return;
+  // A resume that lands inside the pause settle window (fast START double-tap,
+  // gamepad resume in the same frame as pause, ...) must not desync the UI
+  // screen from the simulation: defer it instead of dropping it.
+  const remaining = ignoreResumeUntil - performance.now();
+  if (remaining <= 0) { resumeGame(); return; }
+  if (resumeRetryTimer) clearTimeout(resumeRetryTimer);
+  resumeRetryTimer = setTimeout(() => {
+    resumeRetryTimer = 0;
+    if (game.state === 'paused' && ui && ui.state === 'playing') resumeGame();
+  }, remaining + 16);
 });
 on('ui:pause', () => pauseGame('ui'));
 on('ui:menu', () => goMenu());
@@ -259,6 +297,11 @@ on('ui:settings', (detail = {}) => {
   if (Number.isFinite(detail.sensitivity) && player) {
     settings.sensitivity = THREE.MathUtils.clamp(detail.sensitivity, 0.25, 3.0);
     player.setSensitivity(CONFIG.player.mouseSensitivity * settings.sensitivity);
+    gamepad?.setSensitivity?.(settings.sensitivity);
+  }
+  if (typeof detail.vibrate === 'boolean') {
+    settings.vibrate = detail.vibrate;
+    gamepad?.setVibrationEnabled?.(detail.vibrate);
   }
   const rawVolume = Number.isFinite(detail.volumeRaw) ? detail.volumeRaw : detail.volume;
   if (Number.isFinite(rawVolume)) {
@@ -270,13 +313,6 @@ on('ui:settings', (detail = {}) => {
     audio.setMuted?.(detail.muted);
   }
   if (detail.quality && detail.quality !== currentQuality) applyQuality(detail.quality);
-  if (detail.difficulty === 'standard' || detail.difficulty === 'hardcore') {
-    currentDifficulty = detail.difficulty;
-    settings.difficulty = detail.difficulty;
-    game.difficulty = currentDifficulty;
-    emit('game:difficulty', { difficulty: currentDifficulty });
-    emit('player:stats', buildStats());
-  }
 });
 
 on('wave:start', (detail = {}) => {
@@ -337,6 +373,20 @@ on('pickup:collected', (detail = {}) => {
   }
   emit('player:stats', buildStats());
 });
+// Boss weapon drop collected: equip it (or replace the active slot when full).
+on('pickup:weapon', (detail = {}) => {
+  if (game.state !== 'playing' || !weapon) return;
+  const type = detail.type || 'vxr7';
+  const result = (typeof weapon.addWeapon === 'function' ? weapon.addWeapon(type) : null) || {};
+  if (result.added) {
+    emit('weapon:notice', { text: `${detail.name || type} 已装备 // WEAPON ACQUIRED`, type: 'warn', kind: 'weapon' });
+  } else if (result.replacedType) {
+    emit('weapon:notice', { text: `武器槽已满 — 替换 ${result.replacedType} // SLOT SWAPPED`, type: 'warn', kind: 'weapon' });
+  } else {
+    emit('weapon:notice', { text: '已拥有该武器 // ALREADY OWNED', type: 'info', kind: 'weapon' });
+  }
+  emit('player:stats', buildStats());
+});
 on('enemy:killed', (detail = {}) => {
   game.kills++;
   if (detail.headshot) game.headshots++;
@@ -356,6 +406,12 @@ on('fx:hitflash', (detail = {}) => {
 on('combat:all-waves-cleared', () => handleVictory());
 // compatibility if an older EnemyManager build still emits game:victory
 on('game:victory', () => handleVictory());
+// Controller unplugged mid-run: freeze the simulation instead of leaving the
+// player standing still with no way to pause. The UI shows the warning notice.
+on('gamepad:state', (detail = {}) => {
+  if (detail.supported === false) return;
+  if (!detail.connected && game.state === 'playing') pauseGame('gamepad');
+});
 
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
@@ -382,10 +438,107 @@ if (touchMode) {
 }
 
 // ---------------------------------------------------------------------------
-// State transitions
+// Campaign state transitions
 // ---------------------------------------------------------------------------
-function startRun() {
+
+/** Start a brand-new campaign: wipe the save, reload stage 1 at `difficultyId`. */
+function newCampaign(difficultyId) {
   if (!loaded) return;
+  const diff = getDifficulty(difficultyId);
+  Progress.clearProgress();
+  progress = Progress.createEmptyProgress();
+  Progress.setLastDifficulty(progress, diff.id);
+  const stage = getStageByIndex(1);
+  if (!stage) return;
+  currentDifficultyId = diff.id;
+  startStage(stage.id, diff.id, Progress.stageStartState(progress, stage.id, diff.id));
+}
+
+/** CONTINUE: resume the last played / next uncleared stage with its inherited run state. */
+function continueCampaign() {
+  if (!loaded) return;
+  if (!progress) progress = Progress.loadProgress();
+  const target = Progress.continueTarget(progress);
+  if (!target) {
+    newCampaign(currentDifficultyId);
+    return;
+  }
+  if (!progress) progress = Progress.createEmptyProgress();
+  startStage(target.stageId, target.difficulty, target.runState);
+}
+
+/** SELECT STAGE: start an unlocked stage at the chosen difficulty. */
+function selectStage(stageId, difficultyId) {
+  if (!loaded) return;
+  const stage = getStage(stageId) || getStageByIndex(1);
+  if (!stage) return;
+  const diff = getDifficulty(difficultyId);
+  if (progress && progress.stages[stage.id] && !progress.stages[stage.id].unlocked) {
+    emit('weapon:notice', { text: '关卡未解锁 // STAGE LOCKED', type: 'warn' });
+    return;
+  }
+  if (!progress) progress = Progress.createEmptyProgress();
+  currentDifficultyId = diff.id;
+  startStage(stage.id, diff.id, Progress.stageStartState(progress, stage.id, diff.id));
+}
+
+/** Victory screen "NEXT STAGE" — advance to the unlocked next stage (inherits stats). */
+function nextStageRun() {
+  if (!loaded) return;
+  if (!currentStage) {
+    continueCampaign();
+    return;
+  }
+  const next = nextStage(currentStage.id);
+  if (!next) return;
+  const diff = getDifficulty(currentDifficultyId);
+  startStage(next.id, diff.id, Progress.stageStartState(progress, next.id, diff.id));
+}
+
+/** REDEPLOY / RESTART STAGE — restart the current stage from its starting snapshot. */
+function restartStage(difficultyId) {
+  if (!loaded || !currentStage) return;
+  const diff = getDifficulty(difficultyId || currentDifficultyId);
+  let run = stageRunState;
+  if (!run || !run.weapons) {
+    run = Progress.stageStartState(progress, currentStage.id, diff.id);
+  }
+  startStage(currentStage.id, diff.id, run);
+}
+
+/**
+ * Enter a stage: reset the combat systems, apply the inherited run state,
+ * persist the stage-start save (one of the two legal write moments) and start
+ * the wave director. `runState` comes from src/save.js (inheritance/restart).
+ */
+function startStage(stageId, difficultyId, runState) {
+  if (!loaded) return;
+  const stage = getStage(stageId);
+  if (!stage) return;
+  const diff = getDifficulty(difficultyId);
+  // Multi-map campaigns: if the stage lives on a different map than the one
+  // currently built, reload the page with `?map=` so the correct world boots
+  // (the boot path keeps the current stage/difficulty in the query).
+  try {
+    if (world && stage.mapId && world.mapId && stage.mapId !== world.mapId) {
+      const query = new URLSearchParams(location.search);
+      query.set('map', stage.mapId);
+      query.set('stage', stage.id);
+      query.set('difficulty', diff.id);
+      location.search = query.toString();
+      return;
+    }
+  } catch { /* non-fatal */ }
+
+  currentStage = stage;
+  currentDifficultyId = diff.id;
+  stageRunState = Progress.sanitizeRunState({ ...(runState || {}), difficulty: diff.id });
+  stageEndRecorded = false;
+  game.stageId = stage.id;
+  game.stageIndex = stage.index;
+  game.stageTotal = STAGE_TOTAL;
+  game.difficulty = diff.id;
+
   audio.init?.();
   audio.resume?.();
   game.state = 'playing';
@@ -400,32 +553,44 @@ function startRun() {
   postfx?.setDamage?.(0);
   postfx?.setLowHealth?.(0);
   lowHealth = 0;
+
   player.reset(world.playerSpawn);
   player.setSensitivity(CONFIG.player.mouseSensitivity * THREE.MathUtils.clamp(settings.sensitivity, 0.25, 3.0));
-  weapon.reset();
-  weapon.resetUpgrades();
   player.resetArmorCap?.(CONFIG.player.maxArmor);
   player.resetMaxHealthCap?.(CONFIG.player.maxHealth);
   player.resetDamageReduction?.();
-  // Standard mode: loot earned in a previous run survives death.
-  if (currentDifficulty === 'standard' && carriedUpgrades) {
-    weapon.importUpgrades(carriedUpgrades.weapon);
-    player.applyArmorBonus?.(carriedUpgrades.armorBonus, CONFIG.player.maxArmor);
-    player.applyMaxHealthBonus?.(carriedUpgrades.healthBonus, CONFIG.player.maxHealth);
-    player.setDamageReduction?.(carriedUpgrades.damageReduction);
-    const hasBonus = (carriedUpgrades.weapon?.magExtension || 0) > 0
-      || (carriedUpgrades.weapon?.damageMultiplier || 1) > 1
-      || (carriedUpgrades.weapon?.reloadSpeedMul || 1) < 1
-      || (carriedUpgrades.armorBonus || 0) > 0
-      || (carriedUpgrades.healthBonus || 0) > 0
-      || (carriedUpgrades.damageReduction || 0) > 0;
-    if (hasBonus) emit('weapon:notice', { text: '标准模式：已有强化保留 // UPGRADES CARRIED', type: 'info' });
+
+  weapon.reset();
+  weapon.resetUpgrades();
+  if (weapon.importProgression) weapon.importProgression(stageRunState.weapons);
+  player.applyArmorBonus?.(stageRunState.player.armorBonus, CONFIG.player.maxArmor);
+  player.applyMaxHealthBonus?.(stageRunState.player.healthBonus, CONFIG.player.maxHealth);
+  player.setDamageReduction?.(stageRunState.player.damageReduction);
+  const hasCarry = (stageRunState.weapons.owned || []).length > 1
+    || (stageRunState.player.armorBonus || 0) > 0
+    || (stageRunState.player.healthBonus || 0) > 0
+    || (stageRunState.player.damageReduction || 0) > 0;
+  if (hasCarry) {
+    emit('weapon:notice', { text: '已继承上一关装备与强化 // LOADOUT INHERITED', type: 'info' });
   }
   weapon.setActive(true);
-  game.difficulty = currentDifficulty;
-  emit('game:difficulty', { difficulty: currentDifficulty });
-  enemies.reset();
-  enemies.start();
+
+  emit('game:stage', {
+    stageId: stage.id,
+    index: stage.index,
+    total: STAGE_TOTAL,
+    name: stage.name,
+    subtitle: stage.subtitle || '',
+    waveCount: stage.waveCount || (enemies?.state?.totalWaves ?? 0),
+  });
+  emit('game:difficulty', diff);
+
+  if (enemies) {
+    enemies.setStage?.(stage.id);
+    enemies.setDifficulty?.(diff);
+    enemies.reset();
+    enemies.start();
+  }
   camera.fov = CONFIG.renderer.fov;
   camera.updateProjectionMatrix();
   audio.setCombatIntensity?.(0.35);
@@ -433,7 +598,20 @@ function startRun() {
   emit('game:state', { state: 'playing' });
   emit('player:stats', buildStats());
   emit('score:change', { score: 0, combo: 0, multiplier: 1 });
-  try { player.requestPointerLock(); } catch { /* non-fatal */ }
+
+  // ---- stage start = legal save moment #1 --------------------------------
+  progress = Progress.recordStageStart(progress || Progress.createEmptyProgress(), {
+    stageId: stage.id,
+    difficulty: diff.id,
+    run: stageRunState,
+  });
+  Progress.saveProgress(progress);
+  try {
+    // A gamepad button press is not a browser user activation, so requesting
+    // pointer lock from a pad-driven start would fail; skip it when the player
+    // is on a controller. Clicking the canvas later still locks the mouse.
+    if (!(gamepad && gamepad.active)) player.requestPointerLock();
+  } catch { /* non-fatal */ }
 }
 
 function pauseGame(reason = 'ui') {
@@ -456,7 +634,12 @@ function resumeGame() {
   audio.resume?.();
   audio.setCombatIntensity?.(0.65);
   emit('game:state', { state: 'playing' });
-  try { player.requestPointerLock(); } catch { /* non-fatal */ }
+  try {
+    // A gamepad button press is not a browser user activation, so requesting
+    // pointer lock from a pad-driven start would fail; skip it when the player
+    // is on a controller. Clicking the canvas later still locks the mouse.
+    if (!(gamepad && gamepad.active)) player.requestPointerLock();
+  } catch { /* non-fatal */ }
 }
 
 function goMenu() {
@@ -471,21 +654,20 @@ function goMenu() {
   emit('game:state', { state: 'menu' });
 }
 
-/** Capture the run's loot so a standard-mode redeploy can keep it. */
-function captureCarriedUpgrades() {
-  if (!weapon || !player) return;
-  if (currentDifficulty !== 'standard') {
-    carriedUpgrades = null;
-    saveCarried(null);
-    return;
+/** Snapshot the current run into the save-module run-state shape. */
+function captureRunState() {
+  const base = Progress.emptyRunState(currentDifficultyId);
+  if (weapon?.exportProgression) {
+    base.weapons = weapon.exportProgression();
   }
-  carriedUpgrades = {
-    weapon: weapon.exportUpgrades(),
-    armorBonus: Math.max(0, Math.round((player.maxArmor ?? CONFIG.player.maxArmor) - CONFIG.player.maxArmor)),
-    healthBonus: Math.max(0, Math.round((player.maxHealth ?? CONFIG.player.maxHealth) - CONFIG.player.maxHealth)),
-    damageReduction: Math.round((player.damageReduction || 0) * 10000) / 10000,
+  base.player = {
+    armorBonus: Math.max(0, Math.round((player?.maxArmor ?? CONFIG.player.maxArmor) - CONFIG.player.maxArmor)),
+    healthBonus: Math.max(0, Math.round((player?.maxHealth ?? CONFIG.player.maxHealth) - CONFIG.player.maxHealth)),
+    damageReduction: player?.damageReduction || 0,
   };
-  saveCarried(carriedUpgrades);
+  base.score = game.score;
+  base.difficulty = currentDifficultyId;
+  return Progress.sanitizeRunState(base);
 }
 
 function die() {
@@ -494,7 +676,8 @@ function die() {
   defeated = true;
   game.deathTime = 0;
   deathStartRoll = camera.rotation.z;
-  captureCarriedUpgrades();
+  // Death is deliberately NOT a save moment: the stage-start snapshot stays as
+  // it is, so REDEPLOY restarts from the state the stage was entered with.
   player.enabled = false;
   weapon.setActive(false);
   audio.playerDeath?.();
@@ -508,14 +691,39 @@ function handleVictory() {
   if (game.state !== 'playing' || victoryHandled) return;
   victoryHandled = true;
   game.state = 'victory';
-  captureCarriedUpgrades();
   player.enabled = false;
   weapon.setActive(false);
   audio.victory?.();
   audio.setCombatIntensity?.(0.18);
   if (document.pointerLockElement === canvas) document.exitPointerLock?.();
   emit('game:state', { state: 'victory' });
-  emit('game:victory', buildRunStats());
+  const stats = buildRunStats();
+
+  const next = currentStage ? nextStage(currentStage.id) : null;
+  // ---- stage end = legal save moment #2 ----------------------------------
+  if (currentStage && !stageEndRecorded) {
+    stageEndRecorded = true;
+    progress = Progress.recordStageEnd(progress || Progress.createEmptyProgress(), {
+      stageId: currentStage.id,
+      difficulty: currentDifficultyId,
+      run: captureRunState(),
+      stats,
+    });
+    Progress.saveProgress(progress);
+  }
+  emit('game:victory', {
+    ...stats,
+    stageId: currentStage?.id ?? null,
+    stageName: currentStage?.name ?? '',
+    stageIndex: currentStage?.index ?? 1,
+    stageTotal: STAGE_TOTAL,
+    difficulty: currentDifficultyId,
+    difficultyLabel: getDifficulty(currentDifficultyId).label,
+    cleared: true,
+    unlockedNext: !!next,
+    nextStageId: next ? next.id : null,
+    campaignCleared: !next,
+  });
 }
 
 function buildRunStats() {
@@ -529,6 +737,10 @@ function buildRunStats() {
     accuracy: shots > 0 ? Math.min(1, hits / shots) : 0,
     time: game.playTime,
     bestCombo: game.bestCombo,
+    stageId: currentStage?.id ?? null,
+    stageIndex: currentStage?.index ?? 1,
+    stageTotal: STAGE_TOTAL,
+    difficulty: currentDifficultyId,
   };
 }
 
@@ -545,14 +757,22 @@ function buildStats() {
     reloading: !!w.reloading,
     reloadProgress: w.reloadProgress ?? 0,
     weaponName: w.weapon || 'VXR-7',
+    weaponType: w.weaponType || 'vxr7',
+    weaponMode: w.weaponMode || 'auto',
+    weaponShort: w.short || 'VXR-7',
+    slotIndex: w.slotIndex ?? 0,
     ads: !!w.ads,
     sprinting: !!player?.sprinting,
     alive: !!player?.alive,
     damageMultiplier: w.damageMultiplier ?? 1,
     magExtension: w.magExtension ?? 0,
     reloadBonus: w.reloadBonus ?? 0,
-    difficulty: currentDifficulty,
-    maxArmor: Math.ceil(player?.maxArmor ?? CONFIG.player.maxArmor),
+    difficulty: currentDifficultyId,
+    difficultyId: currentDifficultyId,
+    stageId: currentStage?.id ?? null,
+    stageIndex: currentStage?.index ?? 0,
+    stageTotal: STAGE_TOTAL,
+    stageName: currentStage?.name ?? '',
     healthBonus: Math.max(0, Math.round((player?.maxHealth ?? CONFIG.player.maxHealth) - CONFIG.player.maxHealth)),
     damageReduction: player?.damageReduction ?? 0,
   };
@@ -584,6 +804,8 @@ function applyQuality(quality) {
 // ---------------------------------------------------------------------------
 let lastViewportWidth = 0;
 let lastViewportHeight = 0;
+/** Set by anything that invalidates the held canvas (resize / quality change). */
+let overlayRedrawPending = true;
 
 /** Single source of truth for renderer size + pixel ratio (quality cap × adaptive scale). */
 function applyViewportSize() {
@@ -597,6 +819,9 @@ function applyViewportSize() {
   weapon?.setAspect?.(camera.aspect);
   lastViewportWidth = width;
   lastViewportHeight = height;
+  // The held backdrop (see `canvasHeldForOverlay`) is now stale/wrong-sized:
+  // draw exactly one fresh frame even if a second-level overlay is open.
+  overlayRedrawPending = true;
 }
 
 /** Touch-only dynamic resolution: keeps close to 60 fps on weaker phone GPUs. */
@@ -657,6 +882,22 @@ function updateDeathCamera(dt) {
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
+/**
+ * `true` while the second-level SYSTEM CONFIG overlay is open. That overlay
+ * covers the viewport with a backdrop blur (`.settings-scrim` in styles.css), so
+ * re-rendering the 3D scene underneath forces the compositor to blur a fresh
+ * canvas every frame. Measured at 1600×900 / DPR2 / HIGH: paused frame ~25 ms
+ * vs ~8.3 ms with the last frame held — at that cadence the 0.3 s overlay open
+ * animation visibly stutters, which is what makes opening settings "slow".
+ */
+function canvasHeldForOverlay() {
+  try {
+    return !!(ui && typeof ui.isSettingsOpen === 'function' && ui.isSettingsOpen());
+  } catch (_) {
+    return false;
+  }
+}
+
 function animate(now) {
   requestAnimationFrame(animate);
   if (!loaded) {
@@ -681,12 +922,22 @@ function animate(now) {
   const rawDt = (now - lastFrame) / 1000;
   const dt = Math.min(0.05, Math.max(0, rawDt || 0.016));
   lastFrame = now;
-  game.elapsed += dt;
+  // SYSTEM CONFIG sits on a full-viewport backdrop blur: hold the last rendered
+  // frame (and the scene state that produced it) instead of paying for a full
+  // 3D + postfx render that the compositor then re-blurs every frame. The scene
+  // resumes exactly where it stopped when the overlay closes.
+  const holdCanvas = canvasHeldForOverlay() && !overlayRedrawPending;
+  overlayRedrawPending = false;
+  if (!holdCanvas) game.elapsed += dt;
   trackPerformance(rawDt);
 
   try {
-    world.update?.(dt, game.elapsed);
-    effects.update?.(dt, game.elapsed);
+    if (!holdCanvas) {
+      world.update?.(dt, game.elapsed);
+      effects.update?.(dt, game.elapsed);
+    }
+    // Controller polling + menu focus navigation runs in every UI state.
+    gamepad?.update?.(dt);
 
     if (game.state === 'playing') {
       game.playTime += dt;
@@ -703,7 +954,7 @@ function animate(now) {
         emit('player:stats', buildStats());
       }
     } else if (game.state === 'menu') {
-      updateMenuCamera(dt);
+      if (!holdCanvas) updateMenuCamera(dt);
       audio.setCombatIntensity?.(0.08);
     } else if (game.state === 'dead') {
       updateDeathCamera(dt);
@@ -712,25 +963,27 @@ function animate(now) {
     camera.getWorldPosition(listenerPos);
     camera.getWorldDirection(listenerForward);
     audio.update?.(dt, { position: listenerPos, forward: listenerForward });
-    postfx.update(dt);
+    if (!holdCanvas) postfx.update(dt);
   } catch (error) {
     console.error('Frame update error', error);
   }
 
-  try {
-    postfx.render(dt);
-  } catch (error) {
-    console.error('PostFX render error', error);
+  if (!holdCanvas) {
+    try {
+      postfx.render(dt);
+    } catch (error) {
+      console.error('PostFX render error', error);
+    }
+    try {
+      weapon.render(renderer);
+      renderDebug.weaponRenders++;
+      if (weapon.active) renderDebug.weaponActive++;
+    } catch (error) {
+      renderDebug.errors.push(String(error));
+      console.error('Viewmodel render error', error);
+    }
+    renderDebug.frames++;
   }
-  try {
-    weapon.render(renderer);
-    renderDebug.weaponRenders++;
-    if (weapon.active) renderDebug.weaponActive++;
-  } catch (error) {
-    renderDebug.errors.push(String(error));
-    console.error('Viewmodel render error', error);
-  }
-  renderDebug.frames++;
 }
 
 function onResize() {
@@ -762,9 +1015,9 @@ async function boot() {
   let createWorldFn = null;
   try {
     if (params.get('world') === 'dev') throw new Error('forced dev world');
-    const worldModule = await import('./world.js');
+    const worldModule = await import('./world/index.js');
     createWorldFn = worldModule.createWorld;
-    if (typeof createWorldFn !== 'function') throw new Error('world.js has no createWorld export yet');
+    if (typeof createWorldFn !== 'function') throw new Error('world/index.js has no createWorld export yet');
   } catch (error) {
     if (params.has('fallback') || params.get('world') === 'dev') {
       console.warn('[SANDSTRIKE] real world unavailable — using dev greybox:', error.message);
@@ -778,6 +1031,7 @@ async function boot() {
 
   world = await createWorldFn(scene, renderer, {
     quality: currentQuality,
+    mapId: requestedMapId,
     onProgress: (progress, label) => {
       emit('loading:progress', {
         progress: 0.06 + THREE.MathUtils.clamp(progress, 0, 1) * 0.54,
@@ -785,6 +1039,13 @@ async function boot() {
       });
     },
   });
+  // Match the ambient audio bed to the map: desert wind for outpost-07, ocean /
+  // leaf rustle / birds for the tropical island.
+  try {
+    audio.setWorldStyle?.(world?.style === 'island' ? 'island' : 'outpost');
+  } catch (error) {
+    console.warn('[SANDSTRIKE audio] world style switch skipped', error);
+  }
   // Integration polish: the close-up sand normal tiling reads as corduroy at
   // grazing angles; soften it hard while keeping the fine wind texture.
   try {
@@ -816,6 +1077,12 @@ async function boot() {
     effects,
     audio,
     quality: currentQuality,
+    // Boss weapon drops only roll guns the player does not own yet.
+    getOwnedWeapons: () => (
+      weapon && typeof weapon.exportProgression === 'function'
+        ? (weapon.exportProgression().owned || [])
+        : ['vxr7']
+    ),
     getPlayer: () => ({
       position: player.position,
       eye: player.eye,
@@ -848,6 +1115,26 @@ async function boot() {
 
   postfx = new PostFX(renderer, scene, camera, { quality: currentQuality });
   player.setSensitivity(CONFIG.player.mouseSensitivity * THREE.MathUtils.clamp(settings.sensitivity, 0.25, 3.0));
+
+  // Gamepad layer (Gamepad API + standard mapping; hot-pluggable). It is
+  // independent of the mouse and of the touch layer: input is forwarded through
+  // the pad-specific virtual API on Player plus the shared weapon setters.
+  // ?gamepad=0 disables it for regression testing on a machine with a pad.
+  if (detectGamepadSupport() && params.get('gamepad') !== '0') {
+    try {
+      gamepad = new GamepadControls({
+        player,
+        weapon,
+        settings: {
+          sensitivity: settings.sensitivity,
+          vibrate: settings.vibrate !== false,
+        },
+      });
+    } catch (error) {
+      console.warn('[SANDSTRIKE] gamepad controls failed to initialise', error);
+      gamepad = null;
+    }
+  }
 
   // Touch layer (phones / tablets, or ?touch=1 for desktop emulation). On touch
   // devices pointer lock is never requested: the canvas is driven by the stick
@@ -882,6 +1169,8 @@ async function boot() {
     bounds: world.mapBounds,
     landmarks: world.landmarks || [],
     playerSpawn: world.playerSpawn,
+    mapId: world.mapId ?? requestedMapId,
+    mapName: world.mapName ?? null,
   });
   emit('loading:progress', { progress: 1, label: '战区就绪' });
   await nextFrame();
@@ -897,6 +1186,20 @@ async function boot() {
     setTimeout(() => bootEl.remove(), 900);
   }
 
+  // Deep link (also used when a multi-map campaign crosses maps): `?stage=<id>&difficulty=<id>`
+  // boots straight into that stage after the menu frame has painted.
+  try {
+    const requestedStage = getStage(params.get('stage'));
+    if (requestedStage) {
+      const requestedDiff = getDifficulty(params.get('difficulty') || currentDifficultyId);
+      progress = progress || Progress.loadProgress();
+      setTimeout(() => {
+        if (game.state !== 'menu') return;
+        startStage(requestedStage.id, requestedDiff.id, Progress.stageStartState(progress, requestedStage.id, requestedDiff.id));
+      }, 260);
+    }
+  } catch { /* non-fatal */ }
+
   if (isDev) {
     renderer.info.autoReset = false;
     window.__sandstrike = {
@@ -905,6 +1208,9 @@ async function boot() {
       enemies,
       weapon,
       world,
+      // active map (folder under src/config/maps/), null for the dev greybox
+      mapId: world.mapId ?? null,
+      mapName: world.mapName ?? null,
       ui,
       audio,
       effects,
@@ -913,7 +1219,35 @@ async function boot() {
       renderer,
       postfx,
       touch,
-      start: startRun,
+      gamepad,
+      // Campaign API (src/save.js + startStage above).
+      save: Progress,
+      get progress() { return progress; },
+      get stage() { return currentStage; },
+      get difficulty() { return getDifficulty(currentDifficultyId); },
+      start: () => (progress ? continueCampaign() : newCampaign(currentDifficultyId)),
+      newCampaign,
+      continueCampaign,
+      selectStage,
+      nextStageRun,
+      restartStage,
+      startStage: (stageId = DEFAULT_STAGE_ID, difficulty = DEFAULT_DIFFICULTY_ID) => {
+        startStage(stageId, difficulty, Progress.stageStartState(progress, stageId, difficulty));
+      },
+      forceWeapon(type = 'gatling') {
+        // Convenience dev hook: add the gun if missing, then equip it (QA scripts
+        // previously had to call weapon.switchWeapon() themselves).
+        const result = weapon?.addWeapon?.(type) ?? null;
+        if (weapon && typeof weapon.switchWeapon === 'function') weapon.switchWeapon(type);
+        return result;
+      },
+      forceWeaponDrop(type = 'gatling') {
+        enemies?.debugDropWeapon?.(type);
+        return type;
+      },
+      spawnBoss() {
+        return enemies?.debugSpawnBoss?.() ?? null;
+      },
       pause: pauseGame,
       resume: resumeGame,
       menu: goMenu,
@@ -956,6 +1290,9 @@ async function boot() {
           game.elapsed += dt;
           try { world.update?.(dt, game.elapsed); } catch { /* dev */ }
           try { effects.update?.(dt, game.elapsed); } catch { /* dev */ }
+          // QA hook: advance controller polling/focus so fastForward() can drive
+          // stick look/movement and menu navigation deterministically.
+          try { gamepad?.update?.(dt); } catch (error) { console.warn('ff gamepad', error); }
           if (game.state === 'playing') {
             game.playTime += dt;
             try { player.update(dt); } catch (error) { console.warn('ff player', error); }
@@ -971,7 +1308,6 @@ async function boot() {
         emit('player:stats', buildStats());
         return { state: game.state, wave: enemies?.state?.wave, alive: enemies?.state?.alive, time: game.playTime };
       },
-      killAll() { return enemies?.debugKillAll?.() ?? 0; },
       jumpToWave(n) { enemies?.debugJumpToWave?.(n); },
       damagePlayer(amount = 20) { player.takeDamage(amount, new THREE.Vector3(0, 1.6, 20), 'dev'); },
       renderOnce() {
@@ -1063,6 +1399,9 @@ window.__sandstrikeApp = {
   get loaded() { return loaded; },
   get touchMode() { return touchMode; },
   get touchControls() { return touch; },
+  get gamepad() { return gamepad; },
   get adaptiveScale() { return adaptiveScale; },
   get quality() { return currentQuality; },
+  get stageId() { return currentStage ? currentStage.id : null; },
+  get difficulty() { return currentDifficultyId; },
 };

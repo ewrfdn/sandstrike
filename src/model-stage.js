@@ -13,7 +13,8 @@
  * URL params:
  *   ?m=<modelId>       show this model on boot
  *   ?view=<viewName>   three-quarter | front | back | side | top
- *   ?pose=<poseName>   robot poses: base | aim | walk
+ *   ?pose=<poseName>   any pose the entry advertises (robot: base|aim|walk,
+ *                      weapon / held props: bare|held)
  *   ?quality=<q>       texture quality (medium | high | ultra)
  *
  * Automation API: window.__stage (see the object at the bottom).
@@ -32,10 +33,10 @@ import {
   buildDecalsAndPosters,
   buildLanterns,
   buildPracticalLights,
-} from './world.js';
+} from './world/index.js';
 import { MODEL_CATALOG } from './models/index.js';
 import { createRobotPreview } from './models/robots/index.js';
-import { WeaponSystem } from './weapons.js';
+import { createWeaponPreview } from './models/weapons/preview.js';
 
 const params = new URLSearchParams(location.search);
 const QUALITY = ['medium', 'high', 'ultra'].includes(params.get('quality')) ? params.get('quality') : 'high';
@@ -176,10 +177,89 @@ const VIEW_PRESETS = {
 };
 
 // ---------------------------------------------------------------------------
+// Pose support (robots: base/aim/walk; weapons & held props: bare/held)
+// ---------------------------------------------------------------------------
+const ROBOT_POSES = ['base', 'aim', 'walk'];
+
+/** Poses advertised by a catalog entry (robot chassis / weapon / held prop). */
+function posesFor(entry) {
+  if (!entry) return [];
+  if (entry.kind === 'robot') return ROBOT_POSES;
+  return Array.isArray(entry.poses) ? entry.poses.slice() : [];
+}
+
+/** Default pose of an entry, or null when it has no poses. */
+function defaultPoseFor(entry) {
+  const poses = posesFor(entry);
+  if (!poses.length) return null;
+  return entry.defaultPose && poses.includes(entry.defaultPose) ? entry.defaultPose : poses[0];
+}
+
+/** Resolve a requested pose against the entry's own pose list (fallback = default). */
+function resolvePoseFor(entry, requested) {
+  const poses = posesFor(entry);
+  if (!poses.length) return null;
+  if (requested && poses.includes(requested)) return requested;
+  return defaultPoseFor(entry);
+}
+
+/**
+ * Apply one pose to a built model.
+ * - robots / weapons own their pose inside a preview object (`applyPose`)
+ * - world models that expose `poseGroups` toggle the matching group's visibility
+ *   (`bare` = all arm/held groups off)
+ */
+function applyPoseTo(entry, refs, pose) {
+  if (!entry || !pose) return;
+  if (refs.preview) {
+    refs.preview.applyPose(pose);
+    return;
+  }
+  if (refs.poseGroups) {
+    for (const name of Object.keys(refs.poseGroups)) {
+      const group = refs.poseGroups[name];
+      if (group) group.visible = name === pose;
+    }
+  }
+}
+
+/**
+ * Groups that the current pose has hidden (weapon hands / held-prop arms).
+ * A hidden pose subtree has to be excluded from the stage bbox + triangle stats
+ * so BARE genuinely reads smaller than HELD; every other mesh keeps the legacy
+ * counting semantics (e.g. the viewmodel's invisible spare magazine still
+ * counts, exactly like it did when the old stage measured the whole rig).
+ */
+function hiddenPoseGroups(refs) {
+  const hidden = new Set();
+  if (!refs) return hidden;
+  if (refs.poseGroups) {
+    for (const name of Object.keys(refs.poseGroups)) {
+      const group = refs.poseGroups[name];
+      if (group && group.visible === false) hidden.add(group);
+    }
+  }
+  const hands = refs.preview && refs.preview.handsRoot;
+  if (hands && hands.visible === false) hidden.add(hands);
+  return hidden;
+}
+
+/** True when `obj` sits inside one of the pose groups hidden by the current pose. */
+function underHiddenGroup(obj, hidden) {
+  if (!hidden || hidden.size === 0) return false;
+  let node = obj;
+  while (node) {
+    if (hidden.has(node)) return true;
+    if (node === modelRoot) break;
+    node = node.parent;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let current = null; // { entry, group, stats, box, pose }
-let weapon = null;
+let current = null; // { entry, group, preview, poseGroups, stats, box, pose }
 let sceneBuilt = false;
 let debugMissingMaterials = new Set();
 
@@ -215,10 +295,11 @@ function trackMissingMaterials() {
 // ---------------------------------------------------------------------------
 // Box / stats helpers
 // ---------------------------------------------------------------------------
-function computeBox(root) {
+function computeBox(root, hidden = null) {
   const box = new THREE.Box3();
   root.updateMatrixWorld(true);
   root.traverse((obj) => {
+    if (underHiddenGroup(obj, hidden)) return;
     if (obj.visible === false) return;
     if (obj.userData && obj.userData.zone) return; // invisible robot hitboxes
     // Ground decals are flat quads painted on the floor; including them shifts the
@@ -247,7 +328,7 @@ function computeBox(root) {
   return box;
 }
 
-function collectStats(entry, group, box, pose) {
+function collectStats(entry, group, box, pose, hidden = null) {
   let triangles = 0;
   let meshes = 0;
   let verts = 0;
@@ -255,6 +336,7 @@ function collectStats(entry, group, box, pose) {
   const meshNames = [];
   group.traverse((obj) => {
     if (!obj.isMesh) return;
+    if (underHiddenGroup(obj, hidden)) return;
     meshes++;
     const geo = obj.geometry;
     if (!geo) return;
@@ -288,6 +370,29 @@ function collectStats(entry, group, box, pose) {
     materials: materialsSet.size,
     meshNames,
   };
+}
+
+/**
+ * Apply the stage layout to a freshly built / re-posed model group:
+ * centre the footprint on the platform, then (for lift entries: viewmodels and
+ * carried props) rest the model on the platform plane. Returns the grounded box.
+ */
+function applyStageLayout(entry, group, hidden = null) {
+  group.updateMatrixWorld(true);
+  const box = computeBox(group, hidden);
+  if (box.isEmpty()) {
+    box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
+  }
+  // centre the footprint on the platform; Y stays at the model's authored height
+  // so floating / sunk geometry is visible against the platform plane.
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  group.position.x -= center.x;
+  group.position.z -= center.z;
+  // Viewmodels / held items have no ground of their own: rest them on the platform
+  if (entry.lift) group.position.y += 0.02 - box.min.y;
+  group.updateMatrixWorld(true);
+  return computeBox(group, hidden);
 }
 
 function disposeGroup(group) {
@@ -521,6 +626,10 @@ function resize() {
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  // The stage has no render loop: resizing the drawing buffer clears the frame.
+  // Repaint immediately when a model is already on screen (the dev viewer
+  // embeds the stage in an iframe whose size settles after the info bar fills).
+  if (sceneBuilt && current) render();
 }
 
 function render() {
@@ -529,8 +638,10 @@ function render() {
 }
 
 /**
- * Render a 2×2 contact sheet of views (and optional robot poses) into one frame.
- * items: [{ view: 'front'|'side'|..., pose?: 'base'|'aim'|'walk', distScale? }]
+ * Render a 2×2 contact sheet of views (and optional poses) into one frame.
+ * items: [{ view: 'front'|'side'|..., pose?: 'base'|'aim'|'walk'|'bare'|'held', distScale? }]
+ * Poses are per-cell: robots keep the legacy framing, while weapons / held props
+ * are re-framed from their posed silhouette so the bare vs held cells compare.
  */
 function renderSheet(items = []) {
   if (!current) return null;
@@ -539,10 +650,20 @@ function renderSheet(items = []) {
   const cw = Math.max(1, Math.floor(width / 2));
   const ch = Math.max(1, Math.floor(height / 2));
   const labels = [];
+  const entry = current.entry;
+  const restorePose = current.pose || defaultPoseFor(entry);
+  const savedBox = current.box;
   renderer.setScissorTest(true);
   for (let i = 0; i < 4; i++) {
     const item = items[i] || { view: 'three-quarter' };
-    if (current.preview && item.pose) current.preview.applyPose(item.pose);
+    const pose = item.pose ? resolvePoseFor(entry, item.pose) : null;
+    if (pose) {
+      applyPoseTo(entry, current, pose);
+      current.group.updateMatrixWorld(true);
+    }
+    // Robots keep the legacy framing (pose never moves the platform / box);
+    // weapons / held props re-frame per cell from the posed silhouette.
+    if (pose && entry.kind !== 'robot') current.box = computeBox(current.group, hiddenPoseGroups(current));
     setView(item.view || 'three-quarter', { distScale: item.distScale || 1 });
     const x = (i % 2) * cw;
     const y = i < 2 ? ch : 0; // WebGL viewport origin is bottom-left
@@ -560,7 +681,10 @@ function renderSheet(items = []) {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   if (quadrantsEl) quadrantsEl.classList.add('is-on');
-  if (current.preview) current.preview.applyPose(current.stats.pose || 'base');
+  // restore the interactive pose and the pre-sheet framing box
+  if (restorePose) applyPoseTo(entry, current, restorePose);
+  current.group.updateMatrixWorld(true);
+  current.box = savedBox;
   setView('three-quarter');
   return { labels, cells: 4 };
 }
@@ -590,7 +714,6 @@ async function showModel(id, opts = {}) {
 
   // remove previous
   if (current) {
-    if (current.weaponRoot && current.weaponRoot.parent) current.weaponRoot.parent.remove(current.weaponRoot);
     if (current.preview) {
       try { current.preview.dispose(); } catch (_) { /* best effort */ }
     }
@@ -598,16 +721,23 @@ async function showModel(id, opts = {}) {
     current = null;
   }
 
-  const pose = entry.kind === 'robot' ? (opts.pose || entry.defaultPose || 'base') : null;
+  // Generic pose resolution: robots keep their BASE/AIM/WALK set, weapons and
+  // held props advertise their own list (bare/held) on the catalog entry, and
+  // `?pose=` / show(id, {pose}) apply to every entry that has poses.
+  const pose = resolvePoseFor(entry, opts.pose);
   let group = null;
   let preview = null;
-  let weaponRoot = null;
+  let poseGroups = null;
 
   if (entry.kind === 'world') {
     const data = cloneData();
     const made = makeCtx(data);
     group = made.group;
-    entry.build(made.ctx);
+    const built = entry.build(made.ctx);
+    // Held props (RPG launcher) hand back pose-only visibility groups: their
+    // gloved hands / sleeve stubs are split out of the static batcher so the
+    // stage can hide them for BARE and show them for HELD.
+    if (built && built.poseGroups) poseGroups = built.poseGroups;
     materialize(made.ctx);
     made.ctx.batcher.flush(group, trackMissingMaterials(), []);
     if (entry.support) addStageSupports(group, entry.support);
@@ -615,44 +745,35 @@ async function showModel(id, opts = {}) {
     group = new THREE.Group();
     preview = createRobotPreview(entry.type);
     preview.setHitboxesVisible(false);
-    preview.applyPose(pose);
     group.add(preview.rig.root);
   } else if (entry.kind === 'weapon') {
+    // Dev-only weapon preview (bare weapon + hands split into weaponRoot /
+    // handsRoot); no gameplay WeaponSystem is involved (weapon-split §3.4).
     group = new THREE.Group();
-    if (!weapon) throw new Error('[stage] weapon viewmodel not built');
-    weaponRoot = weapon.gunRoot;
-    group.add(weaponRoot);
-    group.rotation.y = Math.PI;
+    preview = createWeaponPreview(entry.weaponId || entry.type);
+    group.add(preview.root);
+    group.rotation.y = Math.PI; // keep the legacy viewmodel-facing orientation
   }
   // Some props are authored along +X (truck) rather than the stage's -Z facing
   // convention; pre-rotate them so FRONT / SIDE / BACK labels mean what they say.
   if (entry.rotY) group.rotation.y += entry.rotY;
 
+  // Apply the initial pose BEFORE measuring: bare vs held have different
+  // silhouettes, so lift / centring / stats must describe the visible pose.
+  if (pose) applyPoseTo(entry, { preview, poseGroups }, pose);
+
   modelRoot.add(group);
   group.updateMatrixWorld(true);
 
-  const box = computeBox(group);
-  if (box.isEmpty()) {
-    box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
-  }
-
-  // centre the footprint on the platform; Y stays at the model's authored height
-  // so floating / sunk geometry is visible against the platform plane.
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-  group.position.x -= center.x;
-  group.position.z -= center.z;
-  // Viewmodels / held items have no ground of their own: rest them on the platform
-  if (entry.lift) group.position.y += 0.02 - box.min.y;
-  group.updateMatrixWorld(true);
-  const grounded = computeBox(group);
+  const hidden = hiddenPoseGroups({ preview, poseGroups });
+  const grounded = applyStageLayout(entry, group, hidden);
 
   const platformRadius = rebuildPlatform(grounded);
-  const stats = collectStats(entry, group, grounded, pose);
+  const stats = collectStats(entry, group, grounded, pose, hidden);
   stats.platformRadius = +platformRadius.toFixed(2);
   stats.view = null;
 
-  current = { entry, group, preview, weaponRoot, box: grounded, stats };
+  current = { entry, group, preview, poseGroups, box: grounded, stats, pose };
   if (quadrantsEl) quadrantsEl.classList.remove('is-on');
 
   setView(opts.view || 'three-quarter', { distScale: opts.distScale || 1 });
@@ -662,10 +783,34 @@ async function showModel(id, opts = {}) {
 }
 
 function setPose(name) {
-  if (!current || !current.preview) throw new Error('[stage] current model has no pose');
-  current.preview.applyPose(name);
+  if (!current) throw new Error('[stage] current model has no pose');
+  const entry = current.entry;
+  const poses = posesFor(entry);
+  if (!poses.length) throw new Error('[stage] current model has no pose');
+  const pose = resolvePoseFor(entry, name);
+
+  applyPoseTo(entry, current, pose);
   current.group.updateMatrixWorld(true);
-  current.stats = collectStats(current.entry, current.group, computeBox(current.group), name);
+  const hidden = hiddenPoseGroups(current);
+
+  if (entry.kind === 'robot') {
+    // Robots keep the legacy behaviour: pose only, no re-centring / platform
+    // rebuild (their feet stay planted where the rig authored them).
+    current.pose = pose;
+    current.stats = collectStats(entry, current.group, computeBox(current.group), pose);
+  } else {
+    // Weapons / held props: re-apply the stage layout for the new silhouette
+    // (centre + lift -> ground), then recompute box/stats and rebuild the
+    // platform so camera framing and HUD follow BARE <-> HELD.
+    const grounded = applyStageLayout(entry, current.group, hidden);
+    const platformRadius = rebuildPlatform(grounded);
+    const stats = collectStats(entry, current.group, grounded, pose, hidden);
+    stats.platformRadius = +platformRadius.toFixed(2);
+    stats.view = null;
+    current.box = grounded;
+    current.pose = pose;
+    current.stats = stats;
+  }
   // keep the free-orbit orientation when the user has rotated the model
   if (orbit.custom) setCustomView({ az: orbit.az, el: orbit.el, distScale: orbit.distScale });
   else setView(current.view?.name || orbit.lastPreset || 'three-quarter');
@@ -712,18 +857,9 @@ async function boot() {
   const bounce = new THREE.AmbientLight(0xffd9b0, 0.22);
   scene.add(bounce);
 
-  // First-person weapon viewmodel (own hand/gun model, built by WeaponSystem).
-  weapon = new WeaponSystem({
-    camera,
-    canvas,
-    world: {},
-    enemies: null,
-    effects: null,
-    audio: null,
-    player: { alive: true, position: new THREE.Vector3(), eye: new THREE.Vector3(0, 1.7, 0) },
-    renderer,
-    environment: scene.environment,
-  });
+  // Weapon viewmodels are built per-model through the dev weapon preview
+  // (src/models/weapons/preview.js) — the gameplay WeaponSystem is NOT loaded
+  // by the stage anymore (weapon-split §4.1).
 
   sceneBuilt = true;
   statusEl.classList.add('is-hidden');
@@ -747,7 +883,16 @@ async function boot() {
 window.__stage = {
   ready: false,
   errors: [],
-  models: CATALOG.map(({ id, label, group, kind }) => ({ id, label, group, kind })),
+  // poses / defaultPose drive the dev viewer's POSE buttons + the P shortcut and
+  // the automation sheets: robots advertise base/aim/walk, weapons bare/held.
+  models: CATALOG.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    group: entry.group,
+    kind: entry.kind,
+    poses: posesFor(entry),
+    defaultPose: defaultPoseFor(entry),
+  })),
   views: Object.keys(VIEW_PRESETS),
   async show(id, opts = {}) {
     try {
@@ -770,7 +915,7 @@ window.__stage = {
   /** Assigned by the dev model viewer so its UI can follow drag/wheel orbits. */
   onCameraChange: null,
   setHitboxes(visible = true) {
-    if (!current || !current.preview) return 0;
+    if (!current || !current.preview || typeof current.preview.setHitboxesVisible !== 'function') return 0;
     return current.preview.setHitboxesVisible(visible);
   },
   render,
@@ -789,9 +934,14 @@ window.__stage = {
     get scene() { return scene; },
     get current() { return current; },
     get renderer() { return renderer; },
+    /** Procedural texture library (dev texture sheets, see ISLAND_ASSETS.md §3). */
+    get textures() { return tex; },
   },
   dispose() {
     if (current) {
+      if (current.preview) {
+        try { current.preview.dispose(); } catch (_) { /* best effort */ }
+      }
       disposeGroup(current.group);
       current = null;
     }

@@ -61,6 +61,18 @@ function defaultSheet(model) {
       { view: 'top', pose: 'base' },
     ];
   }
+  const poses = Array.isArray(model.poses) ? model.poses : [];
+  if (poses.length) {
+    // Weapon / held-prop sheet: BARE top row, HELD bottom row, so the contact
+    // sheet itself proves the arm model is only attached when equipped.
+    const cells = [
+      { view: 'three-quarter', pose: 'bare' },
+      { view: 'side', pose: 'bare' },
+      { view: 'three-quarter', pose: 'held' },
+      { view: 'front', pose: 'held' },
+    ].filter((cell) => poses.includes(cell.pose));
+    if (cells.length) return cells;
+  }
   return [
     { view: 'three-quarter' },
     { view: 'front' },
@@ -73,7 +85,9 @@ async function shootSingle(spec) {
   const [id, view = 'three-quarter', pose = '', distScale = '1', outName = ''] = spec.split(',');
   const stats = await page.evaluate(async ({ modelId, viewName, poseName, ds }) => {
     const s = await window.__stage.show(modelId);
-    if (poseName && s.kind === 'robot') await window.__stage.setPose(poseName);
+    const model = (window.__stage.models || []).find((m) => m.id === modelId);
+    const poses = (model && model.poses) || [];
+    if (poseName && poses.includes(poseName)) window.__stage.setPose(poseName);
     window.__stage.setView(viewName, { distScale: Number(ds) || 1 });
     window.__stage.render();
     return window.__stage.current();
@@ -113,6 +127,8 @@ for (let i = 0; i < wanted.length; i++) {
       label: model.label,
       group: model.group,
       kind: model.kind,
+      poses: model.poses || null,
+      defaultPose: model.defaultPose || null,
       sheet: info?.labels || [],
       file: file.replace(/\\/g, '/'),
       stats,

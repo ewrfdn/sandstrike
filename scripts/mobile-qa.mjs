@@ -37,6 +37,9 @@ const TOUCH_QUERY = 'dev=1&quality=medium&touch=1';
 const DESKTOP_QUERY = 'dev=1&quality=medium';
 const BOOT_TIMEOUT = 240_000;
 const GROUP_TIMEOUT = 90_000;
+/** A DPR-3 SwiftShader composited capture can need far more than Playwright's
+ *  30 s default once the HUD/pause blur is on screen. */
+const SCREENSHOT_TIMEOUT = 180_000;
 /** Screenshots required by §8 item 13, in capture order. */
 const SHOT_NAMES = [
   'mobile-01-menu-landscape.png',
@@ -338,6 +341,23 @@ const waitUiVisible = (page, { timeout = 8000, minOpacity = 0.5 } = {}) => waitF
   return parseFloat(getComputedStyle(ui).opacity || '0') >= min;
 }, { timeout, label: '.touch-ui visible', arg: minOpacity });
 
+/** Wait until the in-game HUD is actually painted (not just state=playing). */
+const waitHudPainted = (page, { timeout = 15000, minOpacity = 0.55 } = {}) => waitFor(page, (min) => {
+  const hud = document.querySelector('.hud');
+  const ammo = document.querySelector('.ammo-panel');
+  if (!hud || !ammo) return false;
+  let opacity = 1;
+  let node = hud;
+  while (node && node.nodeType === 1) {
+    const cs = getComputedStyle(node);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    opacity *= parseFloat(cs.opacity || '1');
+    node = node.parentElement;
+  }
+  const rect = ammo.getBoundingClientRect();
+  return opacity >= min && rect.width > 10 && rect.height > 10;
+}, { timeout, label: 'HUD painted', arg: minOpacity });
+
 /** Wait until a control is really hit-testable, then return its point. */
 async function pickWhenReady(page, selector, opts = {}, { timeout = 8000 } = {}) {
   await waitFor(page, (payload) => window.__qa.pick(payload.selector, payload.opts).ok, {
@@ -411,7 +431,18 @@ async function capture(page, name) {
       window.__sandstrike?.renderOnce?.();
     }).catch(() => {});
     await sleep(260);
-    await page.screenshot({ path: join(OUT, name) });
+    const screenshot = () => page.screenshot({ path: join(OUT, name), timeout: SCREENSHOT_TIMEOUT });
+    try {
+      await screenshot();
+    } catch (first) {
+      // A heavy frame (world + HUD, pause backdrop blur at DPR 3 under
+      // SwiftShader) can miss the first timeout. Re-prime the compositor and
+      // retry once with the longer timeout instead of dropping the shot.
+      console.log(`    ~ retrying shots/${name} after: ${String(first.message).split('\n')[0]}`);
+      await page.evaluate(() => window.__sandstrike?.renderOnce?.()).catch(() => {});
+      await sleep(800);
+      await screenshot();
+    }
     qa.screenshots[name] = `shots/${name}`;
     console.log(`    ▸ captured shots/${name}${previousScale != null ? ` (adaptiveScale ${previousScale}->1)` : ''}`);
     await page.evaluate((previous) => {
@@ -989,7 +1020,10 @@ try {
       return window.__sandstrike?.state === 'playing';
     }).catch(() => false);
     const uiVisible = await waitUiVisible(shotsPage, { timeout: 12000 });
-    if (playing && uiVisible) {
+    // The touch layer can be visible one composited frame before the HUD panels
+    // have faded in; wait for the ammo panel too so the playing capture is real.
+    const hudPainted = uiVisible ? await waitHudPainted(shotsPage, { timeout: 20000 }) : false;
+    if (playing && uiVisible && hudPainted) {
       await capture(shotsPage, 'mobile-02-playing-landscape.png');
       await freeze(shotsPage, false);
       // fire: synthetic pointerdown on the FIRE button (touch.js sets
@@ -1029,10 +1063,18 @@ try {
         return window.__sandstrike?.state === 'paused';
       }).catch(() => false);
       if (paused) {
-        await waitFor(shotsPage, () => {
+        const pausePainted = await waitFor(shotsPage, () => {
           const screen = document.querySelector('.screen--pause.is-active');
-          return !!screen && parseFloat(getComputedStyle(screen).opacity || '0') > 0.5;
-        }, { timeout: 10000, label: 'pause screen visible' });
+          if (!screen) return false;
+          const cs = getComputedStyle(screen);
+          if (cs.visibility === 'hidden' || parseFloat(cs.opacity || '0') < 0.85) return false;
+          const resume = document.querySelector('.screen--pause [data-action="resume"]');
+          if (!resume) return false;
+          const rect = resume.getBoundingClientRect();
+          return rect.width > 10 && rect.height > 10;
+        }, { timeout: 15000, label: 'pause screen painted' });
+        if (!pausePainted) console.log('    · pause paint wait for mobile-04-paused timed out; capturing anyway');
+        await sleep(200);
         await capture(shotsPage, 'mobile-04-paused.png');
         await freeze(shotsPage, false);
         // end / death screen: resume, force lethal damage, wait for the beat
@@ -1058,8 +1100,8 @@ try {
         console.log('    ! could not enter paused state on screenshot page');
       }
     } else {
-      qa.errors.push(`[shots] could not enter playing state on DPR-3 page (playing=${playing}, uiVisible=${uiVisible})`);
-      console.log(`    ! could not enter playing state on screenshot page (playing=${playing}, uiVisible=${uiVisible})`);
+      qa.errors.push(`[shots] could not enter playing state on DPR-3 page (playing=${playing}, uiVisible=${uiVisible}, hudPainted=${hudPainted})`);
+      console.log(`    ! could not enter playing state on screenshot page (playing=${playing}, uiVisible=${uiVisible}, hudPainted=${hudPainted})`);
     }
   }
   if (shotsCtx) {

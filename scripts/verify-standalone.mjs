@@ -4,11 +4,13 @@
  *
  *   node scripts/verify-standalone.mjs [file]
  *
- * 默认验证 sandstrike.html。检查项：
+ * 默认验证 sandstrike.html。检查项（campaign flow，2024 重构后）：
  * 1. 用 file:// 直接打开（无服务器、无 module import）能完成加载并显示主菜单；
  * 2. 页面请求全部是 file:// / data:，没有任何网络请求；
- * 3. 真实点击 START OPERATION 后进入 playing，能推进波次、开枪、清空 5 波并显示胜利界面；
- * 4. 全程 0 个 console error / pageerror。
+ * 3. 真实点击 NEW GAME → 难度卡 STANDARD 后进入 playing（outpost-07 / standard），能推进波次、
+ *    开枪、打穿 15 波（Boss 波 5 / 10 / 15 = SIEGE WARDEN）并显示胜利结算；
+ * 4. 通关后写入胜利存档（localStorage `sandstrike.progress.v2`，该 stage cleared=true）；
+ * 5. 全程 0 个 console error / pageerror。
  *
  * 需要本机 Chrome（或设置 CHROME_PATH）与 playwright-core；截图与 JSON 输出到 shots/。
  */
@@ -147,7 +149,7 @@ try {
   await page.close();
 
   // -------------------------------------------------------------------------
-  // 阶段 2：带 dev 参数走完整 5 波流程（file:// 也支持 query）
+  // 阶段 2：带 dev 参数打穿完整 15 波 campaign（Boss 波 5 / 10 / 15；file:// 也支持 query）
   // -------------------------------------------------------------------------
   const devUrl = `${fileUrl}?dev=1&quality=high`;
   console.log(`\n[2] 深度验证 ${devUrl}`);
@@ -168,15 +170,29 @@ try {
 
   const waves = [];
   for (let i = 0; i < 60; i++) {
+    // The SIEGE WARDEN steps in ~1.4 s after its escort line has spawned, so a
+    // single time jump can clear a boss wave before the chassis appears (and
+    // debugKillAll also drops still-pending spawns). Advance in 0.5 s chunks and
+    // keep going while the current wave is a boss wave until the boss is alive;
+    // normal waves only need long enough for the escorts to spawn.
     const info = await devPage.evaluate(() => {
       const s = window.__sandstrike;
+      const isBossWave = (wave) => Number.isFinite(wave) && wave > 0 && wave % 5 === 0;
       s.player.godMode = true;
-      s.fastForward(7.0);
+      let boss = null;
+      for (let k = 0; k < 40; k++) {
+        s.fastForward(0.5);
+        const b = window.__devEnemies?.bossInfo?.();
+        if (b && b.alive) { boss = b; break; }
+        const waveNow = s.enemies?.state?.wave ?? 0;
+        if (!isBossWave(waveNow) && k >= 13) break; // ~7 s is enough for normal waves
+      }
       const killed = s.enemies.debugKillAll?.() ?? 0;
       return {
         state: s.state,
         wave: s.enemies?.state?.wave,
         alive: s.enemies?.state?.alive,
+        boss: boss ? { wave: boss.wave, name: boss.displayName, maxHp: boss.maxHp, hp: boss.hp, fraction: boss.fraction } : null,
         killed,
         score: s.game?.score,
         kills: s.game?.kills,
@@ -184,7 +200,23 @@ try {
     });
     const last = waves[waves.length - 1];
     if (!last || last.state !== info.state || last.wave !== info.wave) waves.push(info);
+    else if (info.boss && !last.boss) last.boss = info.boss;
     if (info.state === 'victory' || info.state === 'dead') break;
+  }
+  // Boss waves 5 / 10 / 15 must spawn the SIEGE WARDEN chassis.
+  const bossWaves = waves.filter((w) => w.boss);
+  result.stages.bossWaves = bossWaves.map((w) => ({
+    wave: w.boss.wave,
+    name: w.boss.name,
+    maxHp: w.boss.maxHp,
+    hpFraction: w.boss.fraction,
+  }));
+  const bossWaveNumbers = [...new Set(bossWaves.map((w) => w.boss.wave))].sort((a, b) => a - b);
+  const bossNames = [...new Set(bossWaves.map((w) => w.boss.name || ''))];
+  if (![5, 10, 15].every((n) => bossWaveNumbers.includes(n)) || !bossNames.every((name) => /SIEGE/i.test(name))) {
+    note(`Boss 波异常：期望 5/10/15 SIEGE WARDEN，实际 ${JSON.stringify(result.stages.bossWaves)}`);
+  } else {
+    ok(`Boss 波 5/10/15 出现 SIEGE WARDEN：${bossWaveNumbers.map((n) => `W${n}`).join(' / ')}（${bossNames.join(', ')}）`);
   }
   await devPage.evaluate(() => window.__sandstrike.fastForward(7.0));
   await devPage.waitForFunction(() => {
@@ -193,14 +225,45 @@ try {
   }, null, { timeout: 20_000, polling: 100 }).catch((error) => note('胜利界面未显示：' + error.message));
   const final = await devPage.evaluate(() => ({
     state: window.__sandstrike?.state,
+    stage: window.__sandstrike?.stage?.id ?? null,
     wave: window.__sandstrike?.enemies?.state?.wave,
     score: window.__sandstrike?.game?.score,
     kills: window.__sandstrike?.game?.kills,
+    victoryTitle: document.querySelector('[data-victory-title]')?.textContent?.replace(/\s+/g, ' ').trim() || null,
+    victorySub: document.querySelector('[data-victory-sub]')?.textContent?.replace(/\s+/g, ' ').trim() || null,
+    save: (() => {
+      try {
+        const raw = localStorage.getItem('sandstrike.progress.v2');
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })(),
   }));
   result.stages.waves = waves;
   result.stages.final = final;
-  if (final.state !== 'victory') note(`15 波流程未到达 victory：${JSON.stringify(final)}`);
-  else ok(`15 波通关：wave=${final.wave} kills=${final.kills} score=${final.score}`);
+  if (final.state !== 'victory') note(`15 波流程未到达 victory：${JSON.stringify({ state: final.state, wave: final.wave, stage: final.stage })}`);
+  else if (final.stage !== 'outpost-07') note(`victory 时 stage 异常：${final.stage}`);
+  else ok(`15 波通关：stage=${final.stage} wave=${final.wave} kills=${final.kills} score=${final.score}`);
+  if (!/CLEAR|COMPLETE|胜利|完成/i.test(final.victoryTitle || '')) note(`胜利标题异常：${JSON.stringify({ title: final.victoryTitle, sub: final.victorySub })}`);
+  const saveOutpost = final.save?.stages?.['outpost-07'];
+  result.stages.victorySave = saveOutpost
+    ? {
+        lastStageId: final.save.lastStageId,
+        lastDifficulty: final.save.lastDifficulty,
+        cleared: saveOutpost.cleared,
+        clears: saveOutpost.clears,
+        bestScore: saveOutpost.bestScore,
+        start: !!saveOutpost.start,
+        end: !!saveOutpost.end,
+      }
+    : null;
+  if (!saveOutpost?.cleared || final.save.lastStageId !== 'outpost-07') {
+    note(`通关存档未写入或不对：${JSON.stringify(result.stages.victorySave)}`);
+  } else {
+    ok(`胜利存档写入 localStorage：outpost-07 cleared=${saveOutpost.cleared} clears=${saveOutpost.clears} difficulty=${final.save.lastDifficulty}`);
+  }
+  delete final.save; // keep shots/standalone-qa.json diffable (full save omitted)
   await devPage.evaluate(() => window.__sandstrike?.freeze?.(true));
   await sleep(300);
   await devPage.screenshot({ path: `${OUT}/standalone-03-victory.png` });

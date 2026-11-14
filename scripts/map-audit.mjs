@@ -33,6 +33,16 @@ const OUT_DIR = process.env.OUT_DIR || 'shots/map';
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const WANT_GPU = process.env.GPU !== '0';
 const VIEWPORT = { width: 1280, height: 720 };
+// MAP=<map-id> selects a map folder (e.g. MAP=island-01); STAGE=<stage-id> is an
+// optional deep link (appended as &stage=). Default = legacy outpost-07 behaviour.
+const MAP = process.env.MAP || '';
+const STAGE = process.env.STAGE || '';
+const URL_PARAMS = [
+  'dev=1',
+  `quality=${QUALITY}`,
+  ...(MAP ? [`map=${MAP}`] : []),
+  ...(STAGE ? [`stage=${STAGE}`] : []),
+].join('&');
 
 const SWIFTSHADER_ARGS = [
   '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
@@ -52,7 +62,7 @@ async function openGame(useGpu) {
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${BASE}/?dev=1&quality=${QUALITY}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.goto(`${BASE}/?${URL_PARAMS}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await page.waitForFunction(
     () => window.__sandstrikeApp?.loaded === true && !!window.__sandstrike?.world?.collisionBoxes?.length,
     null,
@@ -169,7 +179,7 @@ function runAuditInPage() {
       }
     }
   }
-  // batch groups flagged collide:false in src/world.js (dark/glass/glow/coals) still
+  // batch groups flagged collide:false in src/world/batcher.js (dark/glass/glow/coals) still
   // leak into world.collideMeshes through the worldObjects rebuild — these are
   // intentional see-through decoration for the visual-only pass.
   const DECOR_ALLOWLIST = /^batch:(dark|glass|glowWarm|glowCyan|coals)$/;
@@ -177,8 +187,19 @@ function runAuditInPage() {
   const triPos = new Float32Array(triFlat);
   const triCount = triMeshId.length;
 
-  // uniform 3D grid (1.5 m cells) over the playable volume
-  const G = { x0: -40, y0: -1, z0: -40, s: 1.5, nx: 54, ny: 10, nz: 54 };
+  // uniform 3D grid (1.5 m cells) over the playable volume — sized from the live
+  // world.mapBounds (+2 m margin) so the same caster works for the 66x66 outpost
+  // (nx=49) and the 140x140 island (nx=97) without hardcoding.
+  const GPAD = 2;
+  const G = {
+    x0: Math.floor((bounds.minX - GPAD) / 1.5) * 1.5,
+    y0: -1,
+    z0: Math.floor((bounds.minZ - GPAD) / 1.5) * 1.5,
+    s: 1.5,
+    ny: 10,
+  };
+  G.nx = Math.ceil((bounds.maxX + GPAD - G.x0) / G.s) + 1;
+  G.nz = Math.ceil((bounds.maxZ + GPAD - G.z0) / G.s) + 1;
   const cellArrays = new Array(G.nx * G.ny * G.nz);
   const cellId = (ix, iy, iz) => (iz * G.nx + ix) * G.ny + iy;
   for (let t = 0; t < triCount; t++) {
@@ -430,8 +451,12 @@ function runAuditInPage() {
   // 4. Floor checks (downward ray at spawns / landmarks, plus landmark-in-solid)
   // ======================================================================
   const floorObjs = [];
+  // `ground` / `batch:paving` = outpost-07 floors. The island splits its floor into
+  // named island-* meshes (see src/world/island-terrain.js), so include those too —
+  // otherwise every beach/landmark floor check falsely reports "no floor".
+  const ISLAND_FLOOR = /^island-(beach|lagoon|ground|bench)$/;
   scene.traverse((o) => {
-    if (o.isMesh && (o.name === 'ground' || o.name === 'batch:paving')) floorObjs.push(o);
+    if (o.isMesh && (o.name === 'ground' || o.name === 'batch:paving' || ISLAND_FLOOR.test(o.name))) floorObjs.push(o);
   });
   const floorRay = new THREE.Raycaster();
   const down = new THREE.Vector3(0, -1, 0);
@@ -611,6 +636,52 @@ function runAuditInPage() {
     });
     const freeCells = nCells - blocked.reduce((acc, v) => acc + v, 0);
     const reachableCells = comps.filter((c) => c.id === playerComp).reduce((a, c) => a + c.cells, 0);
+    // ---- playable-ring statistics (r <= 52 m per ISLAND_MAP_SPEC.md §1) ----------
+    // The 140x140 island bounds contain a lot of open ocean that has no colliders; counting
+    // it as "free" makes the raw reach % meaningless. Restrict the quota to the play ring.
+    const RING_R = 52;
+    let ringCells = 0, ringFreeCells = 0, ringReachCells = 0, ringBlockedCells = 0;
+    const ringUnreachableByComp = new Map();
+    const ringQuadrants = { NE: { free: 0, reach: 0 }, NW: { free: 0, reach: 0 }, SE: { free: 0, reach: 0 }, SW: { free: 0, reach: 0 } };
+    for (let iz = 0; iz < gh; iz++) {
+      for (let ix = 0; ix < gw; ix++) {
+        const cx = cellCX(ix), cz = cellCZ(iz);
+        if (cx * cx + cz * cz > RING_R * RING_R) continue;
+        ringCells++;
+        const c = iz * gw + ix;
+        if (blocked[c]) { ringBlockedCells++; continue; }
+        ringFreeCells++;
+        const q = cx >= 0 ? (cz >= 0 ? 'SE' : 'NE') : (cz >= 0 ? 'SW' : 'NW');
+        ringQuadrants[q].free++;
+        if (comp[c] === playerComp) {
+          ringReachCells++;
+          ringQuadrants[q].reach++;
+        } else {
+          ringUnreachableByComp.set(comp[c], (ringUnreachableByComp.get(comp[c]) || 0) + 1);
+        }
+      }
+    }
+    const ringArea = Math.PI * RING_R * RING_R;
+    const ringUnreachable = [...ringUnreachableByComp.entries()]
+      .filter(([, cells]) => cells >= 8)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([compId, cells]) => {
+        const cp = comps.find((c) => c.id === compId);
+        return { compId, cells, center: cp ? cp.center : null, bbox: cp ? cp.bbox : null };
+      });
+    const playRing = {
+      radius: RING_R,
+      areaM2: round(ringArea, 0),
+      cells: ringCells,
+      freeCells: ringFreeCells,
+      freeAreaM2: round(ringFreeCells * step * step, 0),
+      blockedCells: ringBlockedCells,
+      reachableCells: ringReachCells,
+      reachablePct: ringFreeCells ? round((ringReachCells / ringFreeCells) * 100, 1) : null,
+      unreachableComponents: ringUnreachable,
+      quadrants: ringQuadrants,
+    };
     const disconnected = comps
       .filter((c) => c.id !== playerComp && c.cells >= 4)
       .sort((a, b) => b.cells - a.cells)
@@ -620,6 +691,7 @@ function runAuditInPage() {
       freeCells, totalCells: nCells,
       playerSpawnCellBlocked: blocked[playerCell] === 1,
       reachableCells, reachablePct: round((reachableCells / Math.max(1, freeCells)) * 100, 1),
+      playRing,
       componentCount: comps.length,
       largestComponentCells: comps.length ? Math.max(...comps.map((c) => c.cells)) : 0,
       disconnectedComponents: disconnected,
@@ -1006,6 +1078,7 @@ function runAuditInPage() {
     meta: {
       generatedAt: new Date().toISOString(),
       url: location.href,
+      mapId: (world && world.mapId) || null,
       quality: new URLSearchParams(location.search).get('quality') || 'default',
       renderer: (() => {
         const gl = S.renderer.getContext();
@@ -1121,6 +1194,11 @@ async function main() {
     }
     for (const [id, v] of Object.entries(result.clearance.variants)) {
       console.log(`clearance ${id}: reach ${v.reachablePct}% | comps ${v.componentCount} (largest ${v.largestComponentCells}) | blocked spawn cells ${v.blockedEnemySpawnCells.length} | unreachable spawns ${v.unreachableEnemySpawns.length} | unreachable landmarks ${v.unreachableLandmarks.map((l) => l.name).join(',') || 'none'}`);
+      if (v.playRing) {
+        const pr = v.playRing;
+        const q = Object.entries(pr.quadrants).map(([k, vv]) => `${k} ${vv.free ? Math.round((vv.reach / vv.free) * 100) : 100}%`).join(' ');
+        console.log(`  play-ring r<=${pr.radius}: reach ${pr.reachablePct}% of ${pr.freeAreaM2}m2 (${pr.freeCells} free cells) | quadrants ${q} | in-ring unreachable comps ${pr.unreachableComponents.length ? pr.unreachableComponents.map((c) => `${c.cells}c @ (${c.center ? c.center.x + ',' + c.center.z : '?'})`).join(', ') : 'none'}`);
+      }
     }
     console.log(`NARROW PINS (<2.4m): ${result.narrowPins.count} (structural ${result.narrowPins.structuralCount}, prop-pinch ${result.narrowPins.propPinchCount}, robot-blocked ${result.narrowPins.robotBlockedCount})`);
     for (const p of result.narrowPins.clusters.slice(0, 15)) {

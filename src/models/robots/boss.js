@@ -1,5 +1,5 @@
 /**
- * SIEGE WARDEN — design-only siege boss chassis (ROBOT_TYPES.boss, never spawned by the wave script).
+ * SIEGE WARDEN — siege boss chassis (ROBOT_TYPES.boss).
  *
  * Split out of src/enemies.js by the model-split refactor.  `def` is the
  * original ROBOT_TYPES entry verbatim; the hooks below are the type-specific
@@ -7,32 +7,38 @@
  * buildArm / buildLeg / buildGun / buildRobotRig.  Primitive arguments and
  * emission order are unchanged — the generic builders in shared.js call the
  * hook at the exact position the old branch sat at.
+ *
+ * The chassis is spawned by the wave director on every 5th wave (see
+ * WAVE_RULES in src/config/waves.js); it is no longer design-only, so it is
+ * part of TYPE_KEYS (rig prewarm / wave spawning) while the model catalog
+ * stays unchanged.
  */
 
-// Model study only: the siege boss chassis is authored and reviewed in the
-// isolated model stage.  It is NOT part of the wave script, the spawn order or
-// the rig prewarm (see TYPE_KEYS below), so it never appears in the level.
+// The SIEGE WARDEN is the wave-director boss: every 5th wave spawns it via
+// WAVE_RULES (src/config/waves.js). It is part of TYPE_KEYS (spawn order + rig
+// prewarm) and of the model catalog, so the dev viewer can still preview it.
 
 export const meta = { id: 'robot-boss', kind: 'robot', group: 'robots', label: 'SIEGE WARDEN · 攻城督军', type: 'boss', defaultPose: 'base' };
 
-/** The original ROBOT_TYPES entry (gameplay stats + model dimensions), verbatim. */
+/** The original ROBOT_TYPES entry minus combat stats, which live in src/config/enemies.js. */
 export const def = {
   key: 'boss',
   name: 'SIEGE WARDEN',
   displayName: 'SIEGE WARDEN // 攻城督军',
-  designOnly: true,
-  hp: 1400,
   radius: 1.35,
   height: 5.35,
   speed: 1.75,
   stride: 2.0,
   score: 6000,
-  resist: 0.72,
+  // 0.6 keeps a full VXR-7 magazine (30 × 25 dmg) worth ~450 effective HP, so
+  // the 1900 base pool lands in the 25-45 s sustained-fight window (see the
+  // tuning note in src/config/enemies.js).
+  resist: 0.6,
   staggerResist: 0.92,
   eyeHeight: 4.55,
   boss: true,
   ranges: { min: 12, ideal: 20, max: 36 },
-  fire: { shots: 4, interval: 0.25, cooldown: 3.2, telegraph: 1.3, damage: 26, accuracy: 0.5, mag: 8, reload: 4.0 },
+  fire: { shots: 4, interval: 0.25, cooldown: 3.2, telegraph: 1.3, accuracy: 0.5, mag: 8, reload: 4.0 },
   gun: { scale: 2.7 },
   palette: { armor: 0x574a45, dark: 0x211c1d, trim: 0xd8a33c, gun: 0x2f282a, visor: 0xff3a1f, tracer: 0xff9a55 },
   model: {

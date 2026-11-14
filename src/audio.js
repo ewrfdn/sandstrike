@@ -58,6 +58,15 @@ export class GameAudio {
     this._ambientIn = { creak: 5.5, static: 10, gust: 17 };
     this._ambientSeed = Math.random() * 1000;
 
+    // Tropical island ambience (ocean, leaf rustle, birds) selected by the map's
+    // style tag. `setWorldStyle()` may be called before or after init().
+    this.worldStyle = 'outpost';
+    this._islandAmbientIn = { bird: 1.8, wave: 3.2, leaves: 5.2, flock: 15 };
+    this._desertNodes = null;
+    this._islandNodes = null;
+    this._islandGains = null;
+    this._islandStartedAt = 0;
+
     // Misc state
     this._lastShot = 0;
     this._shotFlip = 0;
@@ -65,6 +74,14 @@ export class GameAudio {
     this._lfoNodes = [];
     this._loopNodes = [];
     this._lastWarn = 0;
+
+    // Gatling spin-up whir: a single lazily-created loop, started only while the
+    // M-77 is spinning and stopped on weapon switch / reset / dispose. The wanted
+    // flag sticky so a loop requested before init() can start once the context is
+    // live.
+    this._spinLoop = null;
+    this._spinWanted = false;
+    this._spinRate = 0;
 
     const AC = typeof window !== 'undefined'
       ? (window.AudioContext || window.webkitAudioContext)
@@ -96,6 +113,9 @@ export class GameAudio {
         await this.ctx.resume().catch(() => {});
       }
       this._applyVolume(0.02);
+      // A spin loop requested before the context existed (e.g. held trigger while
+      // the stage was still booting) starts as soon as audio is live.
+      if (this._spinWanted) this._startSpinLoop();
       return true;
     } catch (error) {
       // Audio is decorative: never break the game because a browser refused it.
@@ -179,6 +199,8 @@ export class GameAudio {
     if (this.disposed) return;
     this.disposed = true;
     this.ready = false;
+    this._spinWanted = false;
+    this._spinLoop = null;
     for (const node of this._loopNodes) {
       try { node.stop(); } catch (_) { /* already stopped */ }
     }
@@ -504,12 +526,66 @@ export class GameAudio {
   }
 
   // =========================================================================
-  // Ambience — wind bed, distant creaks, radio static, gusts
+  // Ambience — desert wind bed vs tropical island bed
   // =========================================================================
 
+  /**
+   * Pick the ambience bed for the current map. `outpost`/`test-range` keep the
+   * desert wind layers; `island` swaps them for ocean, surf, leaf rustle and
+   * birds. Safe to call before init() (the style is applied when the graph is
+   * built) and after init() (the beds crossfade).
+   */
+  setWorldStyle(style) {
+    const next = style === 'island' ? 'island' : 'outpost';
+    if (next === this.worldStyle) return;
+    this.worldStyle = next;
+    if (!this.ctx || !this.ready || this.disposed) return;
+    this._switchAmbience();
+  }
+
+  _switchAmbience() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const fadeGain = (gain) => {
+      if (!gain) return;
+      try {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setTargetAtTime(0.0001, now, 0.3);
+      } catch (_) { /* ignore */ }
+    };
+    const stopNodes = (nodes) => {
+      if (!nodes) return;
+      for (const node of nodes) {
+        try { node.stop(now + 0.9); } catch (_) { /* already stopped */ }
+        const loopIndex = this._loopNodes.indexOf(node);
+        if (loopIndex >= 0) this._loopNodes.splice(loopIndex, 1);
+        const lfoIndex = this._lfoNodes.indexOf(node);
+        if (lfoIndex >= 0) this._lfoNodes.splice(lfoIndex, 1);
+      }
+    };
+    stopNodes(this._desertNodes);
+    stopNodes(this._islandNodes);
+    Object.values(this._islandGains ?? {}).forEach(fadeGain);
+    fadeGain(this._windGain);
+    fadeGain(this._airGain);
+    this._desertNodes = null;
+    this._islandNodes = null;
+    this._islandGains = null;
+    if (this.worldStyle === 'island') this._startIslandAmbience();
+    else this._startDesertAmbience();
+  }
+
   _startAmbience() {
+    if (this.worldStyle === 'island') this._startIslandAmbience();
+    else this._startDesertAmbience();
+  }
+
+  _startDesertAmbience() {
     const ctx = this.ctx;
     const now = ctx.currentTime;
+    const nodes = [];
+    this._desertNodes = nodes;
 
     // Layer 1: low desert wind rumble.
     const gust = this._brownSource(now, 1e9);
@@ -564,6 +640,272 @@ export class GameAudio {
 
     this._windGain = gustGain;
     this._airGain = airGain;
+    nodes.push(gust, gustLfo, gainLfo, air, airLfo);
+  }
+
+  // -------------------------------------------------------------------------
+  // Tropical island bed: ocean swell, surf wash, shallow lapping, leaf rustle,
+  // cicada hush and a few procedural bird phrases.
+  // -------------------------------------------------------------------------
+
+  _startIslandAmbience() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const nodes = [];
+    const gains = {};
+    this._islandNodes = nodes;
+    this._islandGains = gains;
+    this._islandStartedAt = now;
+
+    // Layer 1: deep ocean bed — brown noise under a slow filter sweep.
+    const ocean = this._brownSource(now, 1e9);
+    nodes.push(ocean);
+    this._loopNodes.push(ocean);
+    const oceanFilter = this._filter('lowpass', 430, 0.55);
+    const oceanGain = this._gain(0);
+    gains.ocean = oceanGain;
+    ocean.connect(oceanFilter);
+    oceanFilter.connect(oceanGain);
+    this._out(oceanGain, { bus: 'ambient', pan: 0.04, send: 0.05 });
+    oceanGain.gain.setValueAtTime(0.0001, now);
+    oceanGain.gain.linearRampToValueAtTime(0.17, now + 4.0);
+
+    const oceanLfo = ctx.createOscillator();
+    oceanLfo.frequency.value = 0.052;
+    const oceanLfoGain = this._gain(0.05);
+    oceanLfo.connect(oceanLfoGain);
+    oceanLfoGain.connect(oceanGain.gain);
+    oceanLfo.start(now);
+    nodes.push(oceanLfo);
+    this._lfoNodes.push(oceanLfo);
+
+    const oceanSweep = ctx.createOscillator();
+    oceanSweep.frequency.value = 0.071;
+    const oceanSweepGain = this._gain(110);
+    oceanSweep.connect(oceanSweepGain);
+    oceanSweepGain.connect(oceanFilter.frequency);
+    oceanSweep.start(now);
+    nodes.push(oceanSweep);
+    this._lfoNodes.push(oceanSweep);
+
+    // Layer 2: rolling surf wash — band-passed noise with a ~7 s wave cycle.
+    const surf = this._brownSource(now + 0.03, 1e9);
+    nodes.push(surf);
+    this._loopNodes.push(surf);
+    const surfFilter = this._filter('bandpass', 820, 0.75);
+    const surfGain = this._gain(0);
+    gains.surf = surfGain;
+    surf.connect(surfFilter);
+    surfFilter.connect(surfGain);
+    this._out(surfGain, { bus: 'ambient', pan: 0.1, send: 0.07 });
+    surfGain.gain.setValueAtTime(0.0001, now);
+    surfGain.gain.linearRampToValueAtTime(0.15, now + 4.5);
+
+    const surfLfo = ctx.createOscillator();
+    surfLfo.frequency.value = 0.117;
+    const surfLfoGain = this._gain(0.026);
+    surfLfo.connect(surfLfoGain);
+    surfLfoGain.connect(surfGain.gain);
+    surfLfo.start(now);
+    nodes.push(surfLfo);
+    this._lfoNodes.push(surfLfo);
+
+    // Layer 3: shallow lapping at the waterline — bright, fast, panned left.
+    const lap = this._noiseSource(now + 0.05, 1e9);
+    nodes.push(lap);
+    this._loopNodes.push(lap);
+    const lapFilter = this._filter('highpass', 1500, 0.5);
+    const lapGain = this._gain(0);
+    gains.lap = lapGain;
+    lap.connect(lapFilter);
+    lapFilter.connect(lapGain);
+    this._out(lapGain, { bus: 'ambient', pan: -0.28, send: 0.04 });
+    lapGain.gain.setValueAtTime(0.0001, now);
+    lapGain.gain.linearRampToValueAtTime(0.03, now + 5.0);
+
+    const lapLfo = ctx.createOscillator();
+    lapLfo.frequency.value = 0.33;
+    const lapLfoGain = this._gain(0.006);
+    lapLfo.connect(lapLfoGain);
+    lapLfoGain.connect(lapGain.gain);
+    lapLfo.start(now);
+    nodes.push(lapLfo);
+    this._lfoNodes.push(lapLfo);
+
+    // Layer 4: leaf canopy rustle, driven by a very slow wind LFO.
+    const leaves = this._noiseSource(now + 0.07, 1e9);
+    nodes.push(leaves);
+    this._loopNodes.push(leaves);
+    const leafFilter = this._filter('bandpass', 3300, 0.6);
+    const leafGain = this._gain(0);
+    gains.leaves = leafGain;
+    leaves.connect(leafFilter);
+    leafFilter.connect(leafGain);
+    this._out(leafGain, { bus: 'ambient', pan: 0.16, send: 0.1 });
+    leafGain.gain.setValueAtTime(0.0001, now);
+    leafGain.gain.linearRampToValueAtTime(0.028, now + 6.0);
+
+    const leafLfo = ctx.createOscillator();
+    leafLfo.frequency.value = 0.061;
+    const leafLfoGain = this._gain(0.004);
+    leafLfo.connect(leafLfoGain);
+    leafLfoGain.connect(leafGain.gain);
+    leafLfo.start(now);
+    nodes.push(leafLfo);
+    this._lfoNodes.push(leafLfo);
+
+    // Layer 5: humid cicada hush — a very quiet 5.6 kHz band pulsing at ~6 Hz.
+    const hush = this._noiseSource(now + 0.09, 1e9);
+    nodes.push(hush);
+    this._loopNodes.push(hush);
+    const hushFilter = this._filter('bandpass', 5600, 1.6);
+    const hushGain = this._gain(0);
+    gains.hush = hushGain;
+    hush.connect(hushFilter);
+    hushFilter.connect(hushGain);
+    this._out(hushGain, { bus: 'ambient', pan: 0.34, send: 0.02 });
+    hushGain.gain.setValueAtTime(0.0001, now);
+    hushGain.gain.linearRampToValueAtTime(0.007, now + 7.0);
+
+    const hushLfo = ctx.createOscillator();
+    hushLfo.frequency.value = 5.7;
+    const hushLfoGain = this._gain(0.0022);
+    hushLfo.connect(hushLfoGain);
+    hushLfoGain.connect(hushGain.gain);
+    hushLfo.start(now);
+    nodes.push(hushLfo);
+    this._lfoNodes.push(hushLfo);
+  }
+
+  _advanceIslandAmbience(dt) {
+    if (!this._canPlay()) return;
+    for (const key of Object.keys(this._islandAmbientIn)) {
+      this._islandAmbientIn[key] -= dt;
+      if (this._islandAmbientIn[key] > 0) continue;
+      if (key === 'bird') {
+        this._islandBird();
+        this._islandAmbientIn.bird = rand(3.0, 7.5);
+      } else if (key === 'wave') {
+        this._islandWave();
+        this._islandAmbientIn.wave = rand(4.5, 10.5);
+      } else if (key === 'leaves') {
+        this._islandLeafGust();
+        this._islandAmbientIn.leaves = rand(5.0, 12.0);
+      } else if (key === 'flock') {
+        this._islandFlock();
+        this._islandAmbientIn.flock = rand(12, 26);
+      }
+    }
+  }
+
+  /** One bird phrase. Three simple species: chirp cluster, falling trill, two-note call. */
+  _islandBird(panOverride = null) {
+    if (!this._canPlay()) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + rand(0.05, 1.1);
+    const pan = panOverride ?? rand(-0.85, 0.85);
+    const near = Math.random();
+    const peak = near > 0.45 ? 0.02 : 0.012;
+    const send = near > 0.45 ? 0.35 : 0.6;
+    const species = Math.floor(Math.random() * 3);
+
+    if (species === 0) {
+      // Bright chirp cluster, 2–4 descending notes.
+      const notes = 2 + Math.floor(Math.random() * 3);
+      let when = t0;
+      for (let i = 0; i < notes; i++) {
+        const freq = rand(2500, 4200) * (1 - i * 0.07);
+        this._tone({
+          type: 'sine', freq, freqEnd: freq * rand(0.82, 0.94),
+          t: when - ctx.currentTime, duration: rand(0.05, 0.1),
+          peak, attack: 0.006, pan, bus: 'ambient', send,
+        });
+        when += rand(0.09, 0.2);
+      }
+    } else if (species === 1) {
+      // Falling trill: 6–9 very short notes.
+      const notes = 6 + Math.floor(Math.random() * 4);
+      const base = rand(3000, 4000);
+      for (let i = 0; i < notes; i++) {
+        const freq = base * (1 - i * 0.05);
+        this._tone({
+          type: 'triangle', freq, freqEnd: freq * 0.86,
+          t: t0 - ctx.currentTime + i * rand(0.045, 0.06), duration: 0.05,
+          peak: peak * 0.8, attack: 0.003, pan, bus: 'ambient', send,
+        });
+      }
+    } else {
+      // Two-note call ("koo-koo"), reads as a distant jungle bird.
+      this._tone({
+        type: 'triangle', freq: rand(760, 980), freqEnd: rand(640, 760),
+        t: t0 - ctx.currentTime, duration: rand(0.16, 0.24),
+        peak: peak * 0.85, attack: 0.02, pan, bus: 'ambient', send: Math.max(send, 0.6),
+      });
+      this._tone({
+        type: 'triangle', freq: rand(700, 880), freqEnd: rand(560, 680),
+        t: t0 - ctx.currentTime + rand(0.26, 0.4), duration: rand(0.14, 0.22),
+        peak: peak * 0.7, attack: 0.02, pan, bus: 'ambient', send: Math.max(send, 0.6),
+      });
+    }
+  }
+
+  /** A small far flock: three chirps spread across the stereo field. */
+  _islandFlock() {
+    const count = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      this._islandBird(clamp(rand(-0.95, 0.95), -0.95, 0.95));
+    }
+  }
+
+  /** Rolling wave that arrives on the reef: low swell + foam hiss. */
+  _islandWave() {
+    if (!this._canPlay()) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + rand(0.1, 1.4);
+    const duration = rand(1.8, 3.2);
+    const src = this._brownSource(t0, duration);
+    const filter = this._filter('bandpass', rand(360, 460), 0.9);
+    try {
+      filter.frequency.linearRampToValueAtTime(rand(700, 980), t0 + duration * 0.45);
+      filter.frequency.linearRampToValueAtTime(rand(300, 420), t0 + duration);
+    } catch (_) { /* ignore */ }
+    const env = this._gain(0);
+    this._swell(env, t0, rand(0.028, 0.055), duration * 0.42, duration * 0.08, duration * 0.5);
+    src.connect(filter);
+    filter.connect(env);
+    this._out(env, { bus: 'ambient', pan: rand(-0.7, 0.7), send: 0.18 });
+
+    // Foam hiss riding the back of the wave.
+    this._noiseBurst({
+      t: t0 - ctx.currentTime + duration * 0.45,
+      duration: duration * 0.5,
+      peak: rand(0.008, 0.016),
+      attack: duration * 0.25,
+      type: 'highpass',
+      freq: rand(1500, 2200),
+      pan: rand(-0.8, 0.8),
+      bus: 'ambient',
+      send: 0.12,
+    });
+  }
+
+  /** Wind moving through the canopy: bright noise swell with a filter sweep. */
+  _islandLeafGust() {
+    if (!this._canPlay()) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + rand(0, 1.0);
+    const duration = rand(1.0, 2.4);
+    const src = this._noiseSource(t0, duration);
+    const filter = this._filter('bandpass', rand(2200, 3000), 0.9);
+    try {
+      filter.frequency.linearRampToValueAtTime(rand(3800, 5200), t0 + duration * 0.5);
+      filter.frequency.linearRampToValueAtTime(rand(1900, 2800), t0 + duration);
+    } catch (_) { /* ignore */ }
+    const env = this._gain(0);
+    this._swell(env, t0, rand(0.013, 0.026), duration * 0.35, duration * 0.15, duration * 0.5);
+    src.connect(filter);
+    filter.connect(env);
+    this._out(env, { bus: 'ambient', pan: rand(-0.9, 0.9), send: 0.22 });
   }
 
   _startDrone() {
@@ -593,6 +935,10 @@ export class GameAudio {
   _advanceAmbience(dt) {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (this.worldStyle === 'island') {
+      this._advanceIslandAmbience(dt);
+      return;
+    }
     for (const key of Object.keys(this._ambientIn)) {
       this._ambientIn[key] -= dt;
       if (this._ambientIn[key] > 0) continue;
@@ -830,13 +1176,27 @@ export class GameAudio {
   // Player weapon + foley
   // =========================================================================
 
-  shot() {
+  /**
+   * Player weapon report. `kind` selects the weapon family; the default 'rifle'
+   * keeps the original VXR-7 synthesis byte-for-byte so existing call sites
+   * (`shot()`) are unchanged:
+   *   'rifle' | 'gatling' (higher/tighter/quieter) | 'shotgun' (low boom, longer
+   *   tail) | 'rocket' (igniter thump + launch whoosh; explosion stays separate).
+   */
+  shot(kind = 'rifle') {
     if (!this._canPlay()) return;
     const now = this.ctx.currentTime;
     if (now - this._lastShot < 0.028) return; // hard safety for double-taps
     this._lastShot = now;
     this._shotFlip = (this._shotFlip + 1) % 3;
     const flip = this._shotFlip;
+    if (kind === 'gatling') this._shotGatling(flip);
+    else if (kind === 'shotgun') this._shotShotgun(flip);
+    else if (kind === 'rocket') this._shotRocket(flip);
+    else this._shotRifle(flip);
+  }
+
+  _shotRifle(flip) {
     const punch = 0.94 + Math.random() * 0.12;
     const pan = rand(-0.05, 0.05);
 
@@ -871,6 +1231,193 @@ export class GameAudio {
     if (flip === 0) {
       this._metal({ t: 0.01, base: 2400, duration: 0.06, peak: 0.025, send: 0.2 });
     }
+  }
+
+  /** Gatling: high, mechanical, tight; ~0.8x the rifle level so 19 rps do not fatigue. */
+  _shotGatling(flip) {
+    const punch = 0.78 + Math.random() * 0.12;
+    const pan = rand(-0.04, 0.04);
+
+    // Hard mechanical crack (higher + narrower than the rifle).
+    this._noiseBurst({
+      duration: 0.032, peak: 0.44 * punch, attack: 0.001,
+      type: 'highpass', freq: 2350, freqEnd: 5200, q: 0.85,
+      pan, send: 0.12,
+    });
+    // Tight mid body.
+    this._noiseBurst({
+      duration: 0.075, peak: 0.3 * punch, attack: 0.001,
+      type: 'bandpass', freq: 1250 + flip * 45, freqEnd: 620, q: 1.1,
+      pan, send: 0.16,
+    });
+    // Higher motor pulse instead of the rifle's deep sub thump.
+    this._tone({
+      type: 'triangle', freq: 205 + flip * 6, freqEnd: 82, duration: 0.08,
+      peak: 0.22 * punch, attack: 0.001, pan, send: 0.1,
+    });
+    // Feed / bolt tick.
+    this._noiseBurst({
+      t: 0.012, duration: 0.016, peak: 0.07, attack: 0.001,
+      type: 'bandpass', freq: 4200, q: 2.6, pan, send: 0.08,
+    });
+    // Short tail (the barrels mask the outdoor slap).
+    this._noiseBurst({
+      t: 0.015, duration: 0.16, peak: 0.055, attack: 0.012,
+      type: 'lowpass', freq: 700, freqEnd: 240, q: 0.6,
+      pan: pan * 2, send: 0.26,
+    });
+    if (flip === 0) {
+      this._metal({ t: 0.004, base: 1900, duration: 0.045, peak: 0.02, spread: 2.1, send: 0.16 });
+    }
+  }
+
+  /** Shotgun: low boom + noise slap with a long outdoor tail. */
+  _shotShotgun(flip) {
+    const punch = 1.0 + Math.random() * 0.1;
+    const pan = rand(-0.07, 0.07);
+
+    // Deep sub boom.
+    this._tone({
+      type: 'sine', freq: 76 + flip * 3, freqEnd: 33, duration: 0.34,
+      peak: 0.56 * punch, attack: 0.002, pan, send: 0.2,
+    });
+    // Broad low body.
+    this._noiseBurst({
+      duration: 0.26, peak: 0.46 * punch, attack: 0.002,
+      type: 'lowpass', freq: 920, freqEnd: 180, q: 0.6,
+      pan, send: 0.3,
+    });
+    // Pellet slap / pressure crack.
+    this._noiseBurst({
+      duration: 0.055, peak: 0.3 * punch, attack: 0.001,
+      type: 'highpass', freq: 1100, freqEnd: 3000, q: 0.7,
+      pan, send: 0.22,
+    });
+    // Mid punch.
+    this._noiseBurst({
+      t: 0.006, duration: 0.12, peak: 0.24 * punch, attack: 0.002,
+      type: 'bandpass', freq: 520, freqEnd: 240, q: 0.9,
+      pan, send: 0.24,
+    });
+    // Long outdoor tail.
+    this._noiseBurst({
+      t: 0.03, duration: 0.62, peak: 0.12 * punch, attack: 0.03,
+      type: 'lowpass', freq: 520, freqEnd: 130, q: 0.5,
+      pan: pan * 2, send: 0.6,
+    });
+    if (flip === 0) {
+      this._metal({ t: 0.02, base: 340, duration: 0.12, peak: 0.035, spread: 2.4, send: 0.3 });
+    }
+  }
+
+  /** RPG launch: igniter thump + rising whoosh + tube resonance (explosion is separate). */
+  _shotRocket(flip) {
+    const punch = 0.95 + Math.random() * 0.1;
+    const pan = rand(-0.08, 0.08);
+
+    // Igniter thump.
+    this._tone({
+      type: 'sine', freq: 108, freqEnd: 27, duration: 0.4,
+      peak: 0.48 * punch, attack: 0.003, pan, send: 0.18,
+    });
+    // Launch whoosh: rising band-passed noise.
+    this._noiseBurst({
+      duration: 0.6, peak: 0.28 * punch, attack: 0.02,
+      type: 'bandpass', freq: 380, freqEnd: 2200, q: 0.9,
+      pan, send: 0.35,
+    });
+    // Ignition crackle slap.
+    this._noiseBurst({
+      t: 0.01, duration: 0.09, peak: 0.24 * punch, attack: 0.001,
+      type: 'highpass', freq: 900, freqEnd: 2600, q: 0.7,
+      pan, send: 0.25,
+    });
+    // Launcher / tube resonance.
+    this._metal({ t: 0.012, base: 260 + flip * 20, duration: 0.16, peak: 0.05, spread: 2.2, send: 0.3 });
+    // Exhaust tail.
+    this._noiseBurst({
+      t: 0.12, duration: 0.8, peak: 0.09 * punch, attack: 0.08,
+      type: 'lowpass', freq: 700, freqEnd: 180, q: 0.5,
+      pan: pan * 2, send: 0.55,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Gatling spin-up whir
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start/stop the M-77 mechanical whir. Safe before init() (state is remembered
+   * and the loop starts once the context is live) and safe to call redundantly.
+   * WeaponSystem stops it on weapon switch, reset, setActive(false) and dispose.
+   */
+  gatlingSpin(active) {
+    const on = !!active;
+    this._spinWanted = on;
+    if (!this._canPlay()) return;
+    if (on) this._startSpinLoop();
+    else this._stopSpinLoop();
+  }
+
+  /** Spin amount 0..1 → whir pitch / level (cheap param ramps, no new nodes). */
+  gatlingSpinRate(rate) {
+    const value = clamp(rate, 0, 1);
+    this._spinRate = value;
+    const loop = this._spinLoop;
+    if (!loop || !this.ctx || this.disposed) return;
+    const now = this.ctx.currentTime;
+    try { loop.hum.frequency.setTargetAtTime(46 + 34 * value, now, 0.02); } catch (_) { /* ignore */ }
+    try { loop.band.frequency.setTargetAtTime(170 + 310 * value, now, 0.03); } catch (_) { /* ignore */ }
+    if (loop.spinning) {
+      try { loop.gain.gain.setTargetAtTime(0.02 + 0.045 * value, now, 0.06); } catch (_) { /* ignore */ }
+    }
+  }
+
+  _startSpinLoop() {
+    if (this._spinLoop || !this._canPlay() || !this._brownBuf) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    // Air / rotor wash: looping brown noise through a narrow band.
+    const src = this._brownSource(now, 1e9);
+    const band = this._filter('bandpass', 170 + 310 * this._spinRate, 1.5);
+    const gain = this._gain(0.0001);
+    src.connect(band);
+    band.connect(gain);
+    this._out(gain, { send: 0.05 });
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.02 + 0.045 * this._spinRate, now + 0.09);
+    // Motor hum: saw through a low-pass.
+    const hum = ctx.createOscillator();
+    hum.type = 'sawtooth';
+    hum.frequency.setValueAtTime(46 + 34 * this._spinRate, now);
+    const humFilter = this._filter('lowpass', 260, 1.1);
+    const humGain = this._gain(0.028);
+    hum.connect(humFilter);
+    humFilter.connect(humGain);
+    this._out(humGain, { send: 0.03 });
+    hum.start(now);
+    this._loopNodes.push(src, hum);
+    this._spinLoop = { src, band, gain, hum, humFilter, humGain, spinning: true };
+  }
+
+  _stopSpinLoop() {
+    const loop = this._spinLoop;
+    if (!loop) return;
+    this._spinLoop = null;
+    loop.spinning = false;
+    const idxSrc = this._loopNodes.indexOf(loop.src);
+    if (idxSrc >= 0) this._loopNodes.splice(idxSrc, 1);
+    const idxHum = this._loopNodes.indexOf(loop.hum);
+    if (idxHum >= 0) this._loopNodes.splice(idxHum, 1);
+    if (!this.ctx || this.disposed) return;
+    const now = this.ctx.currentTime;
+    // Short fade so switching / releasing never clicks.
+    try { loop.gain.gain.cancelScheduledValues(now); } catch (_) { /* ignore */ }
+    try { loop.gain.gain.setTargetAtTime(0.0001, now, 0.035); } catch (_) { /* ignore */ }
+    try { loop.humGain.gain.setTargetAtTime(0.0001, now, 0.035); } catch (_) { /* ignore */ }
+    const stopAt = now + 0.22;
+    try { loop.src.stop(stopAt); } catch (_) { /* already scheduled */ }
+    try { loop.hum.stop(stopAt); } catch (_) { /* already scheduled */ }
   }
 
   dryFire() {

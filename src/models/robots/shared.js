@@ -10,9 +10,11 @@
  * A chassis module (`./scout.js`, `./rifleman.js`, ...) exports:
  *   meta   model-viewer metadata (id / kind / group / label / type / defaultPose)
  *   def    its ROBOT_TYPES entry (gameplay stats + model dimensions)
- *   hooks  { torso, head, arm, leg, gun, hitboxes } — only the branches that
- *          chassis actually had; hooks receive the generic builder's locals so
- *          the moved branch bodies could stay verbatim.
+ *   hooks  { pelvis, torso, head, arm, leg, gun, hitboxes } — only the branches
+ *          that chassis actually had; hooks receive the generic builder's
+ *          locals so the moved branch bodies could stay verbatim.  `pelvis` is
+ *          invoked after the generic pelvis and, like the others, may rewrite
+ *          the queued bucket for a fully chassis-specific pelvis.
  */
 import * as THREE from 'three';
 
@@ -271,7 +273,7 @@ export function createRigMaterialSet(baseMats) {
   return { mats: { body, glow }, body, glow, cloned: [body, glow] };
 }
 
-function buildPelvis(b, M, def) {
+function buildPelvis(b, M, def, hooks) {
   const pw = M.pelvisW;
   const ph = M.pelvisH;
   const pd = M.pelvisD;
@@ -290,6 +292,8 @@ function buildPelvis(b, M, def) {
   b.box('accent', pw * 0.3, 0.028, 0.025, 0, ph * 0.2, pd * 0.64);
   b.beam('dark', -pw * 0.3, ph * 0.4, pd * 0.2, -pw * 0.2, ph * 0.44, pd * 0.4, 0.022);
   b.beam('dark', pw * 0.3, ph * 0.4, pd * 0.2, pw * 0.2, ph * 0.44, pd * 0.4, 0.022);
+
+  if (hooks && hooks.pelvis) hooks.pelvis(b, M, def, { pw, ph, pd });
 }
 
 /**
@@ -508,7 +512,7 @@ export function buildRobotRig(def, rigMats, geos, hitGeo, hitMat, hooks) {
   pelvis.position.y = M.hipY;
   root.add(pelvis);
   let b = new RigBuilder(geos, tints);
-  buildPelvis(b, M, def);
+  buildPelvis(b, M, def, hooks);
   collect(b.finish(pelvis, mats, true));
 
   const torso = new THREE.Group();

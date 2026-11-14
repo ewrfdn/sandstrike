@@ -1,0 +1,28 @@
+{
+  "sky": {
+    "sunDirection": [0.80, 0.26, 0.52],
+    "zenith": [0.14, 0.40, 0.76],
+    "horizon": [0.74, 0.71, 0.66],
+    "dust": [0.46, 0.52, 0.56],
+    "sunColor": [1.12, 0.94, 0.74],
+    "cloudColor": [0.64, 0.71, 0.80],
+    "cloudOpacity": 0.35,
+    "groundColor": [0.07, 0.09, 0.08],
+    "domeRadius": 340
+  },
+  "fog": { "color": "#a8bcc4", "density": 0.0076 },
+  "background": "#acc2ca",
+  "lights": {
+    "sun": {
+      "color": "#ffe2c0",
+      "intensity": 2.9,
+      "distance": 190,
+      "target": [0, 0, 0],
+      "shadow": { "ortho": [-82, 82, 82, -82], "near": 40, "far": 420, "bias": -0.00045, "normalBias": 0.055, "radius": 2.4 }
+    },
+    "hemisphere": { "skyColor": "#8ac2e6", "groundColor": "#78884f", "intensity": 1.28 },
+    "ambient": { "color": "#52605c", "intensity": 0.4 },
+    "bounce": { "color": "#eccb9e", "intensity": 0.45, "position": [80, 20, 40], "target": [0, 0, 0] }
+  },
+  "ambience": { "pollen": 460, "mist": 5, "birds": 6, "wind": 0.55 }
+}

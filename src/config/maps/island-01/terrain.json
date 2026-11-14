@@ -1,0 +1,30 @@
+{
+  "island": {
+    "grassRadius": 44,
+    "beachInner": 41,
+    "landRadius": 57,
+    "seed": 7712,
+    "segments": 168
+  },
+  "sea": {
+    "level": -0.38,
+    "bedOuter": 96,
+    "bedDrop": -7.5,
+    "shallow": [0.10, 0.34, 0.32],
+    "deep": [0.02, 0.09, 0.13],
+    "distance": 420
+  },
+  "boundary": {
+    "radius": 52.0,
+    "segments": 116,
+    "height": 1.65,
+    "thickness": 3.2,
+    "gap": { "angle": 0.48, "width": 6.0 }
+  },
+  "colors": {
+    "grass": [0.42, 0.62, 0.36],
+    "sand": [0.92, 0.84, 0.66],
+    "seabed": [0.72, 0.68, 0.52],
+    "rock": [0.30, 0.32, 0.28]
+  }
+}
