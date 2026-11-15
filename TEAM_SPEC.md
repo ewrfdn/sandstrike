@@ -7,16 +7,17 @@ A self-contained Three.js first-person shooter. A 15-wave campaign in a compact,
 ## Run
 
 ```
-node serve.mjs         # http://127.0.0.1:8080
+node serve.mjs         # game: http://127.0.0.1:8080
+npm run dev:tools      # dev viewers: http://127.0.0.1:5199/
 ```
 
-Open in Chrome. Use `?dev=1` for debug hooks. Do not use Vite/Webpack. Everything is native ES modules.
+Open in Chrome. Use `?dev=1` for debug hooks. The game does not use Vite/Webpack — everything is native ES modules; the only Vite + React app is the separate `dev_tools/ui/` viewer, which the shipping game never imports.
 
 ## Module ownership (do not write outside your scope)
 
 | Owner | Files |
 |---|---|
-| Lead | `src/config/**` (except `src/config/enemies.js`), `src/save.js`, `src/main.js`, `src/player.js`, `src/gamepad.js`, `src/touch.js`, `src/audio.js`, `src/bus.js`, `src/postfx.js`, `index.html`, `serve.mjs`, `scripts/build-standalone.mjs`, `README.md`, `TEAM_SPEC.md`, `.scratch/**` |
+| Lead | `src/config/**` (except `src/config/enemies.js`), `src/save.js`, `src/main.js`, `src/player.js`, `src/gamepad.js`, `src/touch.js`, `src/audio.js`, `src/bus.js`, `src/postfx.js`, `index.html`, `serve.mjs`, `scripts/build-standalone.mjs`, `dev_tools/**`, `README.md`, `TEAM_SPEC.md`, `.scratch/**` |
 | weapon-models | `src/models/weapons/**` (`vxr7.js`, `rpg7.js`, `gatling.js`, `shotgun.js`, `hands.js`, `artkit.js`, `preview.js`, `index.js`), `src/models/index.js`, `MODELS.md` |
 | weapon-runtime | `src/weapons.js` (WeaponSystem: 4-slot carry, fire modes, pickups) |
 | boss-waves | `src/enemies.js`, `src/models/robots/index.js`, `src/models/robots/boss.js`, `src/config/enemies.js`, `scripts/check.mjs` (config-contract + save-smoke sections) |
@@ -45,7 +46,7 @@ Touch input flows through the virtual input API instead of synthetic keys:
 
 | Owner | Files |
 |---|---|
-| Lead | `src/gamepad.js` wiring in `src/main.js`/`src/player.js`, `GAMEPAD_SPEC.md`, `scripts/check.mjs`, `package.json`, `README.md`, `sandstrike.html` |
+| Lead | `src/gamepad.js` wiring in `src/main.js`/`src/player.js`, `GAMEPAD_SPEC.md`, `scripts/check.mjs`, `package.json`, `README.md`, `dist/sandstrike.html` (build output) |
 | gamepad-input | `src/gamepad.js` (Gamepad API input module) |
 | gamepad-ui | `src/ui.js`, `styles.css` (settings rows, adaptive legend, focus ring; desktop/mobile visuals unchanged) |
 | gamepad-qa | `scripts/gamepad-probe.mjs`, `shots/gamepad-*` |

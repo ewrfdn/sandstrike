@@ -22,7 +22,7 @@ import { checkMaps } from './world-check.mjs';
 const files = [];
 async function walk(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) await walk(full);
     // Only JS is syntax-checked; map/level JSON is validated by world-check.mjs below.
@@ -31,6 +31,10 @@ async function walk(dir) {
 }
 await walk('src');
 await walk('scripts');
+// Dev tools: the framework-free stage modules and Vite config are plain ESM.
+// The React components (.jsx) are validated by `npm run build:tools`, not by
+// `node --check`, so only .js/.mjs enter this list.
+await walk('dev_tools');
 files.push('serve.mjs');
 
 let failed = 0;
@@ -46,7 +50,7 @@ for (const file of files) {
 
 // Validate bare "three" and "three/addons/*" imports resolve against vendor/.
 const importRe = /from\s+['"](three(?:\/addons\/[^'"]+)?)['"]/g;
-for (const file of files.filter((f) => f.startsWith('src'))) {
+for (const file of files.filter((f) => f.startsWith('src') || f.startsWith('dev_tools'))) {
   const code = await readFile(file, 'utf8');
   for (const match of code.matchAll(importRe)) {
     const spec = match[1];
@@ -65,7 +69,8 @@ for (const file of files.filter((f) => f.startsWith('src'))) {
 // build and Node 24 both require it, and esbuild's standalone bundle depends on it too.
 const jsonImportRe = /^\s*(?:import|export)[^;\n]*?from\s+['"]([^'"]+\.json)['"][^;\n]*/gm;
 const jsonAttrRe = /with\s*\{\s*type:\s*['"]json['"]\s*\}/;
-for (const file of files.filter((f) => f.startsWith('src'))) {
+const sourceFiles = files.filter((f) => f.startsWith('src') || f.startsWith('dev_tools'));
+for (const file of sourceFiles) {
   const code = await readFile(file, 'utf8');
   for (const match of code.matchAll(jsonImportRe)) {
     if (!jsonAttrRe.test(match[0])) {
@@ -77,7 +82,7 @@ for (const file of files.filter((f) => f.startsWith('src'))) {
 
 // No remote texture/model/audio/font references.
 const remoteRe = /https?:\/\/[^\s'"`)]+\.(png|jpe?g|webp|gif|glb|gltf|hdr|exr|mp3|ogg|wav|woff2?|ttf)/gi;
-for (const file of files.filter((f) => f.startsWith('src'))) {
+for (const file of sourceFiles) {
   const code = await readFile(file, 'utf8');
   for (const match of code.matchAll(remoteRe)) {
     failed++;
@@ -85,14 +90,20 @@ for (const file of files.filter((f) => f.startsWith('src'))) {
   }
 }
 
-// Legacy monolith files must be gone after the refactor (they were split into
-// src/world/, src/config/ and src/ui/). Their presence means main.js may still
-// import them.
-for (const legacy of ['src/world.js', 'src/config.js', 'src/ui.js']) {
+// Legacy monolith files must be gone after their refactors. Their presence means
+// the game or tooling may still import them:
+//   src/world.js / src/config.js / src/ui.js  -> split into src/world/, src/config/, src/ui/
+//   models.html / stage.html                  -> moved into the dev_tools/ Vite+React app
+//   src/models-viewer.js / src/model-stage.js -> moved to dev_tools/ui/src/{components,stage}/
+const LEGACY_FILES = [
+  'src/world.js', 'src/config.js', 'src/ui.js',
+  'models.html', 'stage.html', 'src/models-viewer.js', 'src/model-stage.js',
+];
+for (const legacy of LEGACY_FILES) {
   const info = await stat(legacy).catch(() => null);
   if (info) {
     failed++;
-    console.error(`✗ legacy file still present: ${legacy} (should be replaced by src/world/ / src/config/ / src/ui/)`);
+    console.error(`✗ legacy file still present: ${legacy} (moved/removed by the refactor — check docs/imports)`);
   }
 }
 
@@ -132,6 +143,17 @@ const REQUIRED_FILES = [
   ['src/models/weapons/rpg7.js', 1000],
   ['src/models/weapons/gatling.js', 1000],
   ['src/models/weapons/shotgun.js', 1000],
+  // Dev tools: standalone Vite + React app that imports the game builders.
+  ['dev_tools/README.md', 500],
+  ['dev_tools/server/README.md', 200],
+  ['dev_tools/ui/index.html', 300],
+  ['dev_tools/ui/vite.config.mjs', 500],
+  ['dev_tools/ui/src/App.jsx', 500],
+  ['dev_tools/ui/src/app.css', 500],
+  ['dev_tools/ui/src/stage/model-stage.js', 1000],
+  ['dev_tools/ui/src/stage/map-stage.js', 1000],
+  ['dev_tools/ui/src/components/ModelViewer.jsx', 1000],
+  ['dev_tools/ui/src/components/MapViewer.jsx', 1000],
 ];
 for (const [file, minSize] of REQUIRED_FILES) {
   const info = await stat(file).catch(() => null);

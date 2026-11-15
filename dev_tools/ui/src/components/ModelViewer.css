@@ -1,0 +1,343 @@
+/**
+ * SANDSTRIKE // DEV TOOLS — model viewer panel styles.
+ *
+ * Same dark "sandstorm" dev aesthetic the old models.html used; everything is
+ * scoped under `.mv` / `.mv-*` so the map viewer stylesheet stays independent.
+ */
+.mv {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg);
+  font-family: var(--mono);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Sidebar                                                                   */
+/* ------------------------------------------------------------------------ */
+.mv-side {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 300px;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.mv-search-wrap {
+  padding: 10px 12px 8px;
+}
+
+.mv-search {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #0a0c0f;
+  color: var(--ink);
+  outline: none;
+}
+
+.mv-search:focus {
+  border-color: var(--hot);
+}
+
+.mv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 12px 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mv-chip {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.mv-chip:hover {
+  border-color: #4a4034;
+  color: var(--ink);
+}
+
+.mv-chip.on {
+  border-color: var(--sand);
+  background: var(--sand);
+  color: #1a120c;
+  font-weight: 700;
+}
+
+.mv-count {
+  padding: 7px 12px 4px;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.mv-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 18px;
+}
+
+.mv-group-title {
+  padding: 9px 12px 4px;
+  color: var(--faint);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.mv-item {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px 5px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mv-item:hover {
+  background: #141821;
+  color: var(--ink);
+}
+
+.mv-item.on {
+  background: #1d1710;
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--hot);
+}
+
+.mv-item-id {
+  min-width: 74px;
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.mv-item.on .mv-item-id {
+  color: var(--hot);
+}
+
+.mv-item-label {
+  flex: 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Canvas + overlays                                                         */
+/* ------------------------------------------------------------------------ */
+.mv-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #06080a;
+}
+
+.mv-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #06080a;
+}
+
+.mv-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.mv-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 38%, #16120d, #06080a 72%);
+}
+
+.mv-overlay-card {
+  max-width: 460px;
+  padding: 26px 30px;
+  border: 1px solid #3a2f22;
+  border-radius: 5px;
+  background: rgba(14, 12, 9, 0.92);
+  text-align: center;
+}
+
+.mv-overlay-card h2 {
+  margin: 0 0 8px;
+  color: var(--hot);
+  font-size: 13px;
+  letter-spacing: 0.22em;
+}
+
+.mv-overlay-card p {
+  margin: 6px 0;
+  color: var(--dim);
+  line-height: 1.7;
+}
+
+.mv-overlay.is-error .mv-overlay-card {
+  border-color: #5a2a20;
+}
+
+.mv-overlay.is-error h2 {
+  color: var(--danger);
+}
+
+.mv-overlay.is-error p {
+  color: #d8a092;
+  word-break: break-word;
+}
+
+.mv-hint-text {
+  color: var(--faint) !important;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.mv-boot-mark {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 14px;
+  border: 2px solid #3a2f22;
+  border-top-color: var(--hot);
+  border-radius: 50%;
+  animation: mv-spin 0.9s linear infinite;
+}
+
+@keyframes mv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mv-progress-track {
+  height: 4px;
+  margin: 12px 0 8px;
+  border-radius: 2px;
+  background: #1c1712;
+  overflow: hidden;
+}
+
+.mv-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--sand), var(--hot));
+  transition: width 0.2s ease-out;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Info bar / controls                                                       */
+/* ------------------------------------------------------------------------ */
+.mv-info {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.1fr) 2fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.mv-info-name {
+  color: #f0e2c7;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.mv-info-name small {
+  margin-left: 8px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+}
+
+.mv-info-meta {
+  margin: 0;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mv-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.mv-control-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.mv-control-group > span {
+  margin-right: 2px;
+  color: var(--faint);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.mv-btn {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #0b0e11;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.mv-btn:hover {
+  border-color: var(--hot);
+  color: var(--ink);
+}
+
+.mv-btn.on {
+  border-color: var(--hot);
+  color: var(--hot);
+}
+
+.mv-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mv-hint {
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Automation: canvas only, no chrome                                        */
+/* ------------------------------------------------------------------------ */
+.mv--automation {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: #06080a;
+}
+
+.mv--automation .mv-canvas {
+  width: 100%;
+  height: 100%;
+}

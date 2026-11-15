@@ -174,17 +174,21 @@ function buildJetty(ctx, item, index) {
 
   // ------------------------------------------------------------------ piles
   // Two rows of hand-set piles. The lower third is the soaked / barnacle band.
+  // The reef belt is gone, so the jetty now stands in the shallow surf instead of on the old
+  // flat y = 0 apron: the soaked section is driven 1.8 m deeper so the pile feet stay buried
+  // under the (now transparent) water/seabed, and the wet-line detail (mud collars, barnacle
+  // crust) moves down to the real waterline. Deck / beams keep their authored Y.
   for (const px of POST_X) {
     for (const pz of [-POST_Z, POST_Z]) {
-      add('woodDark', cylGeo(0.155, 0.172, 0.56, { radial: 8 }), px, 0.28, pz);
+      add('woodDark', cylGeo(0.155, 0.172, 2.36, { radial: 8 }), px, -0.62, pz);
       add('wood', cylGeo(0.128, 0.155, POST_TOP - 0.56, { radial: 8 }), px, 0.56 + (POST_TOP - 0.56) / 2, pz, 0, rng() * TAU, 0);
-      // soaked mud collar at the sand line
-      add('mud', sphereGeo(0.2, { segW: 8, segH: 6, tile: 1.6 }), px, 0.012, pz, 0, 0, 0, 1, 0.16, 1);
+      // soaked mud collar at the waterline
+      add('mud', sphereGeo(0.2, { segW: 8, segH: 6, tile: 1.6 }), px, -0.4, pz, 0, 0, 0, 1, 0.16, 1);
       // barnacle crust on the wet band
       for (let b = 0; b < 3; b++) {
         const a = rng() * TAU;
         add('stone', cylGeo(0.008, 0.036, 0.024, { radial: 4 }),
-          px + Math.cos(a) * 0.165, 0.1 + rng() * 0.34, pz + Math.sin(a) * 0.165,
+          px + Math.cos(a) * 0.165, -0.34 + rng() * 0.3, pz + Math.sin(a) * 0.165,
           Math.PI / 2, a + Math.PI / 2, 0);
       }
     }

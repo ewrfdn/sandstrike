@@ -140,16 +140,16 @@ node serve.mjs
 
 ## 单文件版（双击即玩）
 
-不想启服务器时，可以生成一个完全自包含的 `sandstrike.html`：CSS、游戏代码和 Three.js 全部内联，**双击用 Chrome / Edge 打开即可运行**（无需 Node、无需网络、可直接拷贝/发送给别人）。
+不想启服务器时，可以生成一个完全自包含的单文件 HTML：CSS、游戏代码和 Three.js 全部内联，**双击用 Chrome / Edge 打开即可运行**（无需 Node、无需网络、可直接拷贝/发送给别人）。
 
 ```bash
-node scripts/build-standalone.mjs     # 等价于 npm run build:html
+npm run build:html                    # 等价于 node scripts/build-standalone.mjs
 ```
 
-生成 `sandstrike.html`（约 1.7 MB，含内置地图 JSON、4 把武器模型与 Boss）。验证它确实能像双击一样运行：
+产物是 **`dist/sandstrike.html`**（约 1.7 MB，含内置地图 JSON、4 把武器模型与 Boss）。`dist/` 是构建产物目录、已 gitignore，不提交到仓库。验证它确实能像双击一样运行：
 
 ```bash
-node scripts/verify-standalone.mjs    # 用 headless Chrome 以 file:// 打开并跑完 15 波
+node scripts/verify-standalone.mjs    # 等价于 npm run qa:standalone；默认校验 dist/sandstrike.html，用 headless Chrome 以 file:// 打开并跑完 15 波
 ```
 
 > 原理：浏览器禁止 `file://` 页面加载 ES Module（CORS），所以构建脚本用 esbuild 把 `src/main.js`（含 vendored Three.js 与 addons）打成 IIFE，再把 CSS/JS 内联进 `index.html`。源码与 `node serve.mjs` 的开发方式完全不受影响。构建脚本需要 `esbuild`（已列入 devDependencies）；静态服务与单文件产物本身都不需要它。
@@ -322,7 +322,8 @@ node scripts/mobile-qa.mjs         # 移动端触屏 / 响应式 QA（需先启�
 node scripts/gamepad-probe.mjs     # 手柄黑盒验证（注入虚拟手柄：检测/菜单/移动/瞄准/开火/震动/热插拔）
 node scripts/gpu-band-check.mjs    # 真实 GPU 上的黑块回归（需硬件加速）
 node scripts/world-verify.mjs      # 世界数据 + 固定相机截图；--compare=a,b 做像素/数据等价对比
-node scripts/verify-standalone.mjs # 单文件 HTML 验证（file:// 直接打开）
+node scripts/verify-standalone.mjs # 单文件 HTML 验证（默认 dist/sandstrike.html，file:// 直接打开）
+npm run qa:devtools               # dev tools 冒烟（自动启动 Vite，校验模型 / 地图 viewer 与相机）
 $env:GPU='1'; node .scratch/audio/audio-check.mjs  # 环境音床对比（岛图 vs 沙漠：频谱/事件计数/热切换）
 ```
 
@@ -368,10 +369,34 @@ QA 会自动完成：真实点击 **NEW GAME** → 4 档难度面板选 STANDARD
 - **热插拔 / 震动**：连接状态通过 `gamepad:state` 广播给 UI（图例、状态行、提示同步），断开时由 `main.js` 自动暂停；震动通过 `vibrationActuator` 在开火 / 命中 / 击杀 / 受击时触发，可开关并持久化。
 - **不抢指针锁定**：手柄开局的按钮事件不是浏览器用户手势，因此手柄活跃时不请求 Pointer Lock；之后点击画面仍可正常锁定鼠标。
 
+## DEV TOOLS（开发工具）
+
+调试 / 预览用的查看器已从游戏本体拆出，独立成 `dev_tools/`（与 `src/` 平级）的 **Vite + React** 应用。游戏运行时不再链接或内嵌任何查看器，`?dev=1` 只保留游戏内调试钩子；查看器单独启动。
+
+```
+dev_tools/
+  ui/        # Vite + React 查看器应用：MODEL VIEWER + MAP VIEWER 两个标签页
+  server/    # 刻意留空：预留给未来的地图 / 模型编辑 API（当前只有 README 占位）
+```
+
+```bash
+npm run dev:tools      # 启动查看器 → http://127.0.0.1:5199/
+npm run build:tools    # 静态产物 → dev_tools/ui/dist/（gitignored）
+npm run preview:tools  # 本地预览 build:tools 的产物
+npm run qa:devtools    # Playwright 冒烟（自动起 Vite、打开两个 viewer、校验模型/地图构建 + 相机可移动）
+```
+
+URL 参数：`?tab=models|map` 选标签页、`?quality=medium|high|ultra`（默认 high）、`?m=<modelId>` / `?map=<mapId>` 深链接、`?automation=1` 供自动化脚本使用。
+
+- **MODEL VIEWER**（默认，`http://127.0.0.1:5199/`）：替代旧的 `models.html?dev` / `stage.html`。左侧按组列出全部模型（杂物 / 主道具 / 植被 / 草村 / 遗迹 / 海岸 / 掉落物 / 建筑 / 布料灯具 / 机器人 / 武器），支持搜索、`1-5` 切视角、`P` 切姿态与自由旋转；`?tab=models&m=<id>` 直达单个模型，加 `&view=front&pose=held` 可固定视角 / 姿态。单模型舞台 API `window.__stage` 保留，自动化脚本走 `?automation=1`。
+- **MAP VIEWER**（`?tab=map`）：用 `src/config/maps/` 的真实地图数据经 `createWorld()` 渲染，可切换地图；自由飞行相机 **WASD** 移动、拖拽鼠标 / 指针环视、**Q/E** 升降、**Shift** 加速、**R** 回到出生点、滚轮调速，状态栏实时显示坐标 / 朝向 / FPS / draw calls / 三角面数。`?tab=map&map=<id>` 指定初始地图。
+- `dev_tools/server/` 目前是空目录，只有设计说明（未来「网页端直接编辑地图 / 模型」的 API 落点，详见 `dev_tools/server/README.md`）；两个查看器都是只读展示。目录与使用细节见 **`dev_tools/README.md`**。
+
 ## 开发
 
 - 静态服务：`node serve.mjs`
-- 单文件构建：`node scripts/build-standalone.mjs`（产物 `sandstrike.html`）
+- 开发工具（模型 / 地图查看器）：`npm run dev:tools`（<http://127.0.0.1:5199>）、`npm run build:tools`、`npm run preview:tools`、`npm run qa:devtools`（详见上节）
+- 单文件构建：`node scripts/build-standalone.mjs`（等价 `npm run build:html`，产物 `dist/sandstrike.html`）
 - 语法 / 引用 / 配置契约 / 存档冒烟 / 地图 JSON 检查：`node scripts/check.mjs`、`npm run check:maps`
 - 世界数据 / 视觉等价验证：`node scripts/world-verify.mjs --tag=<name>`、`--compare=<a>,<b>`
 - 无头 QA / 截图：`node scripts/qa.mjs`（需先启动服务）
@@ -383,13 +408,13 @@ QA 会自动完成：真实点击 **NEW GAME** → 4 档难度面板选 STANDARD
 - 手柄黑盒验证：`node scripts/gamepad-probe.mjs`（需先启动服务；注入虚拟手柄，无需真实硬件）
 - 真实 GPU 黑块回归：`node scripts/gpu-band-check.mjs`（需先启动服务）
 - 帧数显示验证：`node scripts/fps-probe.mjs`（需先启动服务，硬件 GPU）
-- 单文件验证：`node scripts/verify-standalone.mjs`
+- 单文件验证：`node scripts/verify-standalone.mjs`（等价 `npm run qa:standalone`，默认校验 `dist/sandstrike.html`）
 - 调试参数：`?dev=1` 暴露 `window.__sandstrike`；`?map=<id>` 选择地图；`?quality=lowest|low|medium|high|ultra` 强制画质；`?gamepad=0` 禁用手柄层；`?touch=1` 在桌面模拟触屏；`?world=dev` 使用灰盒调试世界
 - 帧数统计（`?dev=1`）：`__devUI.perf` 读取 `{fps, frameMs, worstMs, samples, level}`，`__devUI.setShowFps(bool)` 切换面板；游戏内 `F3` 等同 SYSTEM CONFIG 开关
 - 战役 / 存档（`?dev=1`）：`__sandstrike.save` = `src/save.js` 全部导出；`newCampaign(difficulty)`、`continueCampaign()`、`selectStage(stageId, difficulty)`、`startStage(stageId, difficulty)`；只读 `progress` / `stage` / `difficulty`
 - 敌人 / 难度 / Boss（`?dev=1`）：`__sandstrike.forceWeapon(type)`、`__sandstrike.forceWeaponDrop(type)`、`__sandstrike.spawnBoss()`；`__devEnemies` 提供 `spawnBoss()`、`bossInfo()`、`killAll()`、`jumpToWave(n)`、`setStage(id)`、`setDifficulty(id)`、`damageArea(center, radius, amount, opts)`、`dropWeapon(type[, x, z])`、`weaponDrops()`、`state()`、`robots()`
 - 开发调试：`__sandstrike.fastForward(sec)`、`killAll()`、`jumpToWave(n)`、`freeze(true)`、`renderOnce()`
-- 运行时依赖仅 `three`（已本地 vendored）以及 Node 静态服务器，**跑游戏不需要 npm install**；只有重新构建单文件版才需要 devDependencies 中的 `esbuild`（`npm install` 后可用）
+- 运行时依赖仅 `three`（已本地 vendored）以及 Node 静态服务器，**跑游戏不需要 npm install**；重新构建单文件版才需要 devDependencies 中的 `esbuild`，dev tools（Vite + React）需要 `vite` / `react` / `@vitejs/plugin-react`，`npm install` 后可用
 
 ## 贴图与材质模块
 

@@ -1,7 +1,7 @@
 # MODELS // 模型目录
 
 SANDSTRIKE 的所有可预览模型都按 **一个模型一个文件** 放在 `src/models/` 下，
-由共享几何工具、模型注册表和两个 dev-only 预览入口组成。
+由共享几何工具、模型注册表和独立的 dev 工具查看器（`dev_tools/ui/`，见「预览方式」）组成。
 
 ```
 src/models/
@@ -49,7 +49,7 @@ export function build(ctx) { /* 预览：套用 stage 布局 + 预览脚手架�
 export function buildWorld(ctx) { /* 地图装配：按 ctx.data.layout 生成全部实例 */ }
 ```
 
-- 允许从 `../core.js`、`../../utils.js` 导入共享工具；不得从 `src/world/` / `model-stage.js` 反向导入。
+- 允许从 `../core.js`、`../../utils.js` 导入共享工具；不得从 `src/world/` / `dev_tools/ui/src/stage/model-stage.js` 反向导入。
 - 布面模型（banner/flag/awning）额外导出 `createBanner/createFlag/createAwning`，供
   `src/world/dressing.js` 的 `buildCloths`（共用 `makeRNG(1717)`）按固定顺序调用。
 - 预览专用脚手架（临时支撑、背板等）只写在 `build()` 里并注明 `// preview-only scaffolding`。
@@ -219,20 +219,33 @@ build(ctx)                          // 舞台预览：独立几何 + shared 材�
   mossStone / ruinStone / shoreRock / beachSand / woven / rope / driftWood / mud`；
   批次键在 `src/world/architecture.js` 的 `ensureBatches()` 注册。
 
-## 预览方式（仅 dev 模式）
+## 预览方式（dev tools）
+
+查看器已从游戏本体拆到独立的 `dev_tools/ui/`（Vite + React），先启动：
+
+```bash
+npm run dev:tools      # → http://127.0.0.1:5199/
+```
 
 | 用途 | 入口 |
 |---|---|
-| **模型浏览器 WebUI（推荐）** | `http://127.0.0.1:8080/models.html?dev` |
-| 单独舞台/自动化 | `http://127.0.0.1:8080/stage.html?m=<id>&view=front&pose=held` |
-| 游戏内 dev 入口 | `index.html?dev` 右下角 `模型预览 MODEL VIEWER` 按钮 |
+| **模型查看器 MODEL VIEWER（推荐）** | `http://127.0.0.1:5199/`（`?tab=models`） |
+| 单个模型直达 | `http://127.0.0.1:5199/?tab=models&m=<id>` |
+| 单独舞台/自动化 | `http://127.0.0.1:5199/?tab=models&m=<id>&view=front&pose=held` |
 
-- `models.html` 无 `?dev` 时显示 `DEV ONLY` 门禁，不加载渲染器。
-- WebUI 左侧按组（杂物/主道具/掉落物/建筑/布面/机器人/武器）列出全部模型，支持搜索、
-  ↑/↓ 或 ←/→ 切换、1-5 切视角、P 切姿态，也可 `?m=<id>` 直达。
+- 游戏本体不再内嵌或链接模型查看器（`?dev=1` 只保留游戏内调试钩子）：旧的根目录
+  `models.html` / `stage.html` 与 `src/models-viewer.js` / `src/model-stage.js` 已删除，
+  查看器逻辑在 `dev_tools/ui/src/components/ModelViewer.jsx` + `dev_tools/ui/src/stage/model-stage.js`。
+- 查看器左侧按组（杂物 / 主道具 / 植被 / 草村 / 遗迹 / 海岸 / 掉落物 / 建筑 / 布料灯具 / 机器人 / 武器）列出全部模型，支持搜索、
+  ↑/↓ 或 ←/→ 切换、1-5 切视角、P 切姿态，也可 `?tab=models&m=<id>` 直达。
 - **姿态 POSE**：机器人 `BASE / AIM / WALK`；武器与带 pose 的设计稿 `BARE / HELD`。
-  在 WebUI 里点按钮或按 `P` 切换；`stage.html` / 自动化可用 `?pose=bare|held` 直接指定。
-  无姿态的模型 POSE 按钮为禁用占位。
+  在查看器里点按钮或按 `P` 切换；无姿态的模型 POSE 按钮为禁用占位。
+- **深链接**：`?tab=models&m=<id>` 选模型，`&view=three-quarter|front|side|back|top`
+  选预置视角，`&pose=` 取该模型支持的值（机器人 `base|aim|walk`，武器 / 手持道具
+  `bare|held`）；非法值回落到默认。例如
+  `http://127.0.0.1:5199/?tab=models&m=weapon-vxr7&view=front&pose=held`。
+- **自动化**：单模型舞台 API `window.__stage` 保留不变，自动化脚本带 `?automation=1`
+  （隐藏查看器 UI，直接暴露舞台）。
 - **自由旋转**：在预览画面中拖动可 360° 环绕查看模型（上下拖动改俯仰角），
   滚轮/触控缩放；双击画面或点 `RESET` 回到预置视角。信息栏实时显示
   `AZ / EL / ZOOM`，自由旋转时显示 `CUSTOM ORBIT`。
@@ -252,6 +265,9 @@ node scripts/model-shots.mjs --only=loot-ammo,loot-relic
 node scripts/model-shots.mjs --only=weapon-vxr7,weapon-rpg,weapon-gatling,weapon-shotgun
 node scripts/model-shots.mjs "--single=weapon-vxr7,side,held,1.2,.scratch/weapon-hold.jpg"
 ```
+
+> 这些脚本通过 Playwright 连接 dev tools 的 Vite 服务（默认 `http://127.0.0.1:5199/`，需先 `npm run dev:tools`），
+> 模型舞台走 `?tab=models&...&automation=1`；`window.__stage` API 与拆分前一致。
 
 - 有 `poses` 的模型（4 把武器 / RPG 设计稿）默认 sheet 为
   `3/4 BARE · SIDE BARE · 3/4 HELD · FRONT HELD`，同一张图即可对比手臂是否绑定。

@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 
+# Build artifacts
+# The single-file game build is generated into dist/ by scripts/build-standalone.mjs;
+# the dev-tools Vite build goes to dev_tools/ui/dist/. Neither is source.
+dist/
+dev_tools/ui/dist/
+
 # Local scratch, probe scripts and logs
 .scratch/
 *.log

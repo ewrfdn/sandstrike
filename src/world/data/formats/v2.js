@@ -9,9 +9,10 @@
  * Key design rule: **maps place instances, the adapter derives collision.** Every
  * placement list under `architecture.json` / `props.json` is normalised into
  * `layout.island.*`, and `islandCollisionBoxes()` turns it into AABB colliders using the
- * footprint table below (plus the reef boundary ring from `terrain.boundary`). Data files
- * therefore stay tiny and readable, and colliders can never drift from the visuals'
- * documented footprints.
+ * footprint table below. There is no reef-ring collider any more: the shoreline is open and
+ * the player is stopped by the wading guard (`island-shore.js`), which is an exact radial
+ * clamp, not a ring of invisible boxes. Data files therefore stay tiny and readable, and
+ * colliders can never drift from the visuals' documented footprints.
  *
  * Output shape (consumed by src/world/index.js + the model builders):
  *
@@ -29,13 +30,15 @@ import {
   SPAWN_RESOLVE_DEFAULTS,
 } from './v1.js';
 import { buildWarnings, resolveEnemySpawns } from '../collision.js';
-import { islandRingBoxes } from '../../island-shape.js';
 
 export const FORMAT = 'sandstrike/map@2';
 
 const TAU = Math.PI * 2;
 
 // ---------------------------------------------------------------- terrain defaults
+// No `boundary` block: the reef-ring collider and its boulders do not exist any more. The
+// island's `landRadius` is the legal placement radius (jetties may still reach past it into
+// the water; the validator in `data/index.js` allows that with an explicit allowance).
 export const ISLAND_TERRAIN_DEFAULTS = Object.freeze({
   island: Object.freeze({
     grassRadius: 41,
@@ -51,13 +54,6 @@ export const ISLAND_TERRAIN_DEFAULTS = Object.freeze({
     shallow: Object.freeze([0.10, 0.34, 0.32]),
     deep: Object.freeze([0.02, 0.09, 0.13]),
     distance: 420,
-  }),
-  boundary: Object.freeze({
-    radius: 52,
-    segments: 116,
-    height: 1.65,
-    thickness: 3.2,
-    gap: Object.freeze({ angle: 0.48, width: 6.0 }),
   }),
   colors: Object.freeze({
     grass: Object.freeze([0.42, 0.62, 0.36]),
@@ -354,10 +350,9 @@ const VEGETATION_FOOTPRINTS = Object.freeze({
  *
  * @param {object} layoutIsland normalised `layout.island.*` arrays
  * @param {object} reuse        reused prop arrays (`crates`, `barrels`, `lowWalls`, `stalls`, `campfires`)
- * @param {object} terrain      normalised terrain part
  * @param {Array} [extraSolids] hand-authored AABB solids (`architecture.extraSolids`)
  */
-export function islandCollisionBoxes(layoutIsland, reuse = {}, terrain = {}, extraSolids = []) {
+export function islandCollisionBoxes(layoutIsland, reuse = {}, extraSolids = []) {
   const out = [];
 
   // ------------------------------------------------------------------ structures
@@ -417,13 +412,6 @@ export function islandCollisionBoxes(layoutIsland, reuse = {}, terrain = {}, ext
     // to the audit's 0.5 m probe. 0.45 m still stops the player without air above it.
     box(out, fire.x, fire.z, 1.5, 1.5, 0.45, 'stone');
     tagFrom(out, start, 'campfires');
-  }
-
-  // ------------------------------------------------------- reef boundary ring
-  {
-    const start = out.length;
-    out.push(...islandRingBoxes(terrain.boundary));
-    tagFrom(out, start, 'reef');
   }
 
   // ---------------------------------------------------- hand-authored solids
@@ -536,7 +524,7 @@ export function normalize({ id: mapId, manifest = {}, parts = {} }) {
   };
 
   // ------------------------------------------------------------- collision set
-  const collisionBoxes = islandCollisionBoxes(island, reuse, terrain, architecture.extraSolids);
+  const collisionBoxes = islandCollisionBoxes(island, reuse, architecture.extraSolids);
 
   // ------------------------------------------------------------------ spawns
   const spawnsPart = parts.spawns ?? {};

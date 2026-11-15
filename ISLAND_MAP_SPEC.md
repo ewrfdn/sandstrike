@@ -11,10 +11,14 @@
 
 ## 1. 世界坐标与总体分区
 
-- 米制，+Y 上，地面 y=0，**北 = -Z，南 = +Z，东 = +X，西 = -X**。
-- 岛是圆形：草地 r ≤ 41，沙滩环 r 38–62，海底坡 r 61–96（视觉），海水自分界 r≈62 起。
-- **可玩边界**：环礁岩脊（collider）在 r ≈ 52，闭合一圈；只在**东南码头缺口**（角度 `atan2(24, 56) ≈ 0.405 rad`，宽 6 m）留可通过的通道，接木栈桥。
-- 玩家在 r ≤ 52 内活动，y 恒为 0（平地）；木栈桥/村道高台通过“可踩碰撞盒”（顶面 ≤0.30 m）抬脚。
+- 米制，+Y 上，**北 = -Z，南 = +Z，东 = +X，西 = -X**。草地盘顶面 y=0。
+- 岛不是一个圆，而是一条**被半径 warp 打乱的闭合海岸线**（`island-shore.js` 的 3 次谐波 warp，幅度 ±2.44 m）：
+  沙滩从草地外缘（`beachInner` 41）一路下坡到水线（`waterline` ≈ 53.5）再没入水下，海底坡到 `bedOuter` 96 接深海。
+- **没有环礁岩脊了（2026-11-15 重构）**：旧版 r≈52 的礁石闭合环 + 116 个隐形碰撞盒已整体删除，海岸线完全打开，
+  玩家可以走下沙滩、踩着湿沙走进浅水（膝盖深）。
+- **可玩边界改为水中夹紧**：`island-shore.js` 的 `guardRadius`（水线外 ≈3.9 m，即 0.62–0.68 m 水深）做精确半径夹紧，
+  每个方位的夹紧点都落在**同一水深**上，并保留切向速度（贴着岸滑行，不会"撞墙"）。敌人共用同一夹紧。
+- 玩家 y 不再恒 0：`world.groundHeight(x,z)` 给出沙面/海底高度，玩家、机器人都贴地；木栈桥/村道高台仍是"可踩碰撞盒"（顶面 ≤0.30 m）。
 - 出生点：南滩营地 `(0, 46)`，yaw 0（面向 -Z，朝岛心）。
 
 区域（名字用于 landmarks / 波次节奏）：
@@ -40,7 +44,7 @@
 ```
 src/config/maps/island-01/
   map.json          # 清单（format: sandstrike/map@2, bounds ±70, playerSpawn, parts）
-  terrain.json      # 岛形/沙滩/海底/边界岩脊/水体参数
+  terrain.json      # 岛形/沙滩/海底/水体参数（岩脊已删）
   environment.json  # 清晨天空/太阳/雾/半球光/氛围（pollen/mist）
   architecture.json # 村庄/遗迹/海岸结构摆放（只写摆放，碰撞自动派生）
   props.json        # 植被 + 复用道具摆放
@@ -98,14 +102,16 @@ src/config/maps/island-01/
 
 ```jsonc
 {
-  "island": { "grassRadius": 41, "beachInner": 38, "beachOuter": 62, "landRadius": 62, "seed": 7712 },
+  "island": { "grassRadius": 44, "beachInner": 41, "landRadius": 57, "seed": 7712, "segments": 168 },
   "sea": { "level": -0.38, "bedOuter": 96, "bedDrop": -7.5,
-           "shallow": [0.10, 0.34, 0.32], "deep": [0.02, 0.09, 0.13] },
-  "boundary": { "radius": 52.0, "segments": 116, "height": 1.65, "thickness": 3.2,
-                "gap": { "angle": 0.405, "width": 6.0 } },
+           "shallow": [0.10, 0.34, 0.32], "deep": [0.02, 0.09, 0.13], "distance": 420 },
   "colors": { "grass": [0.42, 0.62, 0.36], "sand": [0.92, 0.84, 0.66], "seabed": [0.72, 0.68, 0.52] }
 }
 ```
+
+没有 `boundary` 块了。`landRadius` 只是"沙滩名义外缘"，真正的干湿分界/水线/夹紧半径都由
+`island-shore.js` 从 `island` + `sea` 参数烘焙（见 §4.5），改这两个块就能整体缩放海岸。`sea.shallow/deep`
+只剩历史意义（水体颜色现在由 `ocean/glsl.js` 的 absorption/scatter 决定）。
 
 ### 2.5 `spawns.json`
 
@@ -134,7 +140,7 @@ src/config/maps/island-01/
 
 **不要手写碰撞盒**：`formats/v2.js` 根据摆放 + 下表派生（`ISLAND_FOOTPRINTS`），并叠加：
 
-- 边界岩脊：`islandRingBoxes(terrain.boundary)`（闭合环，留码头缺口）；
+- ~~边界岩脊~~：**已删除**（2026-11-15）。海岸线没有碰撞盒，靠 `island-shore.js` 的半径夹紧挡住出界；
 - `architecture.extraSolids`（手动微调，少用）；
 - 复用道具按 outpost 旧规则（crates/barrels/lowWalls/stalls/campfire）。
 
@@ -162,7 +168,7 @@ src/config/maps/island-01/
 | bambooClumps（竹丛） | 每丛按 map 低模的 4 根竹竿各一根 0.34×0.34×2.7（s 缩放）：贴合竹竿本体；整丛大盒会因侧向探针先打到盒外叶卡而报 top-only 空气墙 |
 | fallenLogs（倒木） | 沿局部 X 轴 4 段 AABB（断口/中段/根端 + 竖立根板），每段按 ry 旋转，避免整根 5 m 长盒旋转后膨胀 |
 
-> 判定标准：`map-audit` 每个 >0.5 m 的盒必须有贴合可见几何（岩脊模型与盒同参数生成）。
+> 判定标准：`map-audit` 每个 >0.5 m 的盒必须有贴合可见几何。
 > 植被盒只包树干/竹竿/倒木本体，**不包树冠/叶卡**：一是避免"空气墙"，二是叶卡植被
 > 本来就设计成可穿过。软植被（灌木/芭蕉/蕨/草/藤）不产生碰撞盒，由 `world-check`
 > 的 island 植被断言守住这条边界。
@@ -177,22 +183,42 @@ src/config/maps/island-01/
 export function buildIslandTerrain(ctx) // 返回 { ground }
 ```
 
-- 草地盘（r ≤ grassRadius，y=0，`name='ground'`，材质 `jungleGrass` + 程序混合 `leafLitter` 顶点色）；
-- 沙滩环（beachInner→landRadius，`beachSand`，与草地 4 m 过渡重叠、y-0.002 防 z-fight）；
-- 海底坡（landRadius→bedOuter，下潜 bedDrop，`beachSand`/`mud` 顶点色渐变）；
-- 边界岩脊：按 `islandRingBoxes()` **同参数**生成不规则岩石条带（`shoreRock`/`mossStone`，可用 `rockGeo` 拼），缺口留空；岩脊上撒 12–18 丛灌木/蕨做雨林边缘；
-- `ctx.ground` 必须指向草地 mesh（map-audit / 子弹 / 玩家落地依赖 `name='ground'`）。
+- 所有沙面（草地落叶盘除外）都**采样同一份海岸剖面** `shoreProfile(terrain)`（见 §4.5），不允许再出现"各自算一遍"：
+  沙滩环 × 海底坡在 `waterlineAt(bearing) + 2.2` 的接缝上**共用边界顶点**（几何水密、无 z-fight、无颜色断带）；
+- 沙滩环（`beachInner` → 接缝）：`name='island-beach'`，`beachSand` 材质，顶点色按**高度相对海平面**混合
+  干沙 / 潮湿沙 / 湿沙 / 水下浅沙（不再按半径混）；外侧轮廓由 warp 半径决定，因此水线是自然曲线而不是圆；
+- 海底坡（接缝 → `bedOuter`）：`name='island-lagoon'`（沙底 + 水下沙纹）、`island-coral`（珊瑚/海草簇）、
+  `island-scatter`（贝壳/碎石/漂浮物）、`island-tideline`（海藻带）；
+- **水下材质调色必须保持"浅色沙"**：水是真正透明的（§4.2），颜色由水体 absorption/in-scatter 提供；
+  海底自己刷深蓝/墨绿会合成一条浑浊暗带（旧版 opaque 水面时期的画法，已废弃）；
+- 以上 6 个 mesh 都打 `mesh.userData.seabed = true`——海面折射用的俯视 seabed capture 只白名单这些 mesh；
+- 无石质边界岩脊（旧 `buildReefRidge` 及 `islandRingBoxes` 已删除）；
+- `ctx.ground` 必须指向草地 mesh（map-audit / 子弹依赖 `name='ground'`）；
+- 额外导出给世界层：`ctx.shoreProfile`、`ctx.groundHeight(x,z)`、`ctx.shoreGuard = { guardRadiusAt }`；
+- 静态几何，无每帧开销；`ctx.terrainTris` 约 30k（旧版含岩脊 57.6k）。
 
-### 4.2 `src/world/island-water.js`
+### 4.2 `src/world/island-water.js`（2026-11-15 重写）
 
 ```js
-export function buildIslandWater(ctx) // 返回 { mesh, update(time), level }
+export function buildIslandWater(ctx) // 返回 { mesh, foam, level, update(time) }
 ```
 
-- 大水面（≥360×360）y = `sea.level`，自定义 ShaderMaterial：天空色 fresnel 反射、太阳高光长条、两层正弦波法线、深浅水颜色混合（近岸浅绿松石→远海深蓝）；
-- 岸边白浪泡沫带（r≈landRadius±0.6，透明 alpha 噪声滚动）；
-- 浅水透光（近岸可看到 seabed 颜色）+ 水下轻微暗角；
-- 不参与 raycast/碰撞（`userData.surface` 不设，`collide:false`）。
+实现拆到 `src/world/ocean/`：`quality.js`（分档预算）、`glsl.js`（波浪/天空/海底/焦散 GLSL）、
+`seabed-capture.js`（一次性俯视海底烘培）、`water.js`（海面）、`surf.js`（浪花带 + 湿沙带）。
+
+- **海面**：以水线为中心的放射状网格（近岸 0.7–1.2 m 间距、向 470 m 视界渐疏），顶点用
+  `oceanSurface(xz, t)` 真实位移（涌浪 + 碎浪共 21/13/11.4/7.5 m 等波列），法线由同函数梯度解析求出；
+- **折射**：`refract(入射, 法线, 1/1.33)` 后在解析海底面步进，采样 `uSeabed`（seabed capture 的**线性 HDR** 纹理，
+  正交俯视，1024²@medium / 2048²@high+，范围 ±130 m）；海底 albedo 从 capture 亮度重建为浅色沙 + 结构；
+- **水体颜色**：Beer-Lambert（absorption ≈ (1.00, 0.22, 0.16)/m）+ in-scatter（浅水 (0.048,0.275,0.36) → 深水 (0.007,0.042,0.11)），
+  水面 alpha 随水深从 0.70 升到 1.0，**干沙上直接 discard**（只保留极薄的一层 swash 水膜），所以浅滩是清澈透底的绿松石；
+- **波浪可见**：菲涅尔天空反射 + 太阳高光长条（HDR，给 bloom 用）+ 焦散（在水下沙面上，随深度/视角衰减）；
+- **浪花带**：`surf.js` 生成一条**贴着位移后水线**的窄带（水线 −2.6 m … +8 m），泡沫用解析三角函数交叉场打散
+  （不再用 hash 值噪声格子），alpha 上限 0.86/0.16/0.18，无 discard 硬边；
+- **湿沙带**：swash 记忆（采样 t、t−1.6、t−3.4 的波高）给出干湿过渡，水覆盖后淡出；
+- 分档：lowest 无 capture（程序化海底）13.7k tri / low 512² 22.8k / medium 1024² 41.5k / high 2048² 70.7k / ultra 2048² 108.8k，
+  稳态 **3 个 draw call**，海面 `frustumCulled=false`、`renderOrder=2`、`depthWrite=false`；
+- 不参与 raycast/碰撞（`userData.surface` 不设）；构建失败时 try/catch 返回惰性 stub，绝不阻断世界生成。
 
 ### 4.3 `src/world/island-ambience.js`
 
@@ -208,6 +234,27 @@ export function buildIslandAmbience(ctx) // 返回 { update(time) }
 ### 4.4 `src/world/island-props.js`（Lead 已实现）
 
 `ensureBatches(ctx)` → 依次调用 `ISLAND_MODELS[*].module.buildWorld` → 复用道具（crate/barrel/lowWall/stall/campfire）→ 不调用 outpost 的 architecture/props/dressing。
+
+### 4.5 `src/world/island-shore.js`（海岸线契约，唯一的真相源）
+
+纯数学模块（**不 import three**，服务和 GLSL 都能用）：
+
+```js
+shoreProfile(terrain) -> {
+  landRadius, level, dryTo, waterline, wadeRadius, guardRadius, bedOuter, bedDrop,
+  guardRadiusAt(bearing), height(r), Y(x,z), depthAt(x,z), waterlineAt(bearing),
+  warpRadius(bearing), lut, lutSize,   // 512 texel 单调三次插值 LUT
+}
+clampToGuard(profile, position, offset) // 精确半径夹紧（就地修改）
+warpRadius(bearing)
+SHORE_GLSL_UNIFORMS / SHORE_GLSL      // 供 ocean 着色器
+```
+
+- 一条**单调**径向高度剖面（干燥沙台 → 沙滩坡 → 水线 → 水下坡 → 深海），JS（地形/玩家/敌人）与 GLSL（水/浪花）
+  读的是同一份 512 texel LUT，所以**几何与着色器不可能对不上**；
+- 半径再用 3 次谐波 warp（±2.44 m）打乱，海岸线不是圆；
+- 关键常量：`level −0.38`、水线 53.5、干沙结束 49.5、涉水上限 ≈57.44（水深 0.62）、夹紧半径 +0.35（水深 0.68）；
+- `guardRadiusAt` 保证**每个方位夹紧点水深相同**，玩家/机器人在任何方位都是齐膝深停下。
 
 ---
 
@@ -258,8 +305,8 @@ export function buildIslandAmbience(ctx) // 返回 { update(time) }
 | bananaPlants | 20–26 | 村边/林缘 |
 | fernClumps | 30–38 | 林下层 |
 | bambooClumps | 16–20 | 村后/林间 |
-| bushes | 42–52 | 边界岩脊 + 林缘 + 村舍旁 |
-| vineDrapes | 26–34 | 大树/遗迹/岩脊 |
+| bushes | 42–52 | 林缘 + 村舍旁 + 沙滩内缘 |
+| vineDrapes | 26–34 | 大树/遗迹/林缘 |
 | fallenLogs | 8–12 | 林间 |
 | grassTufts | 170–210 | 全岛地被点缀 |
 | huts / hutRuins | 3–4 / 2–3 | 草村 |
@@ -316,11 +363,12 @@ node scripts/world-verify.mjs --tag=after --gpu=1     # outpost-07 回归抓取�
 | 模块 | 文件 | 说明 |
 | --- | --- | --- |
 | 地图数据 | `src/config/maps/island-01/`（7 个 JSON） | map@2 全部 6 个部件 + manifest；`architecture.json` / `props.json` 由两位数据作者扩写到 §7 目标 |
-| 新格式适配器 | `src/world/data/formats/v2.js` | 归一化 island layout、按 §3 footprint 自动派生碰撞盒 + 实体植被树干碰撞（`VEGETATION_FOOTPRINTS`）+ 环礁边界环（含码头缺口）、复用道具碰撞、"每盒来源 kind" 标签 |
-| 校验 | `src/world/data/index.js`（`validateIslandMapData`） | island 专属校验：地形/边界/海面数值、25 个摆放数组、地标/出生点/半径 |
-| 岛形数学 | `src/world/island-shape.js` | 纯数据（无 three）：`resolveBoundary` / `boundarySegments` / `islandRingBoxes` / 缺口判定 |
-| 地形 | `src/world/island-terrain.js` + `terrain.json` | 草地/落叶/沙滩湿沙/贝壳碎石/海底坡/珊瑚/环礁礁岩带（成簇下沉变尺寸、每段可见石、缺口门柱）；57k tri |
-| 水面 | `src/world/island-water.js` | 跨向波浪、深浅水色、菲涅尔天空反射、太阳碎金、近岸白浪环；2 draw call |
+| 新格式适配器 | `src/world/data/formats/v2.js` | 归一化 island layout、按 §3 footprint 自动派生碰撞盒 + 实体植被树干碰撞（`VEGETATION_FOOTPRINTS`）、复用道具碰撞、"每盒来源 kind" 标签（**岩脊环已删除**） |
+| 校验 | `src/world/data/index.js`（`validateIslandMapData`） | island 专属校验：地形/海面数值、25 个摆放数组、地标/出生点/半径（放置半径允许到 `guardRadius`，栈桥可探入水面） |
+| 海岸线契约 | `src/world/island-shore.js` | 纯数学（无 three）：单调径向剖面 + 512 LUT + 3 谐波半径 warp + `clampToGuard` + 共用 GLSL（见 §4.5） |
+| 岛形数学 | `src/world/island-shape.js` | 纯数据：仅剩 `landRadius(terrain)`（`island-water.js` 用它定 capture 范围）；`resolveBoundary`/`boundarySegments`/`islandRingBoxes` 已删除 |
+| 地形 | `src/world/island-terrain.js` + `terrain.json` | 草地/落叶/沙滩（干→湿→水下连续调色）/贝壳碎石/海底坡/珊瑚/海藻带；全部采样 `shoreProfile`；30.1k tri（旧版含岩脊 57.6k）；5 个水下 mesh 打 `seabed` 标签 |
+| 水面 | `src/world/island-water.js` + `src/world/ocean/` | 位移海面 / 折射 + Beer-Lambert / 焦散 / 浪花带 / 湿沙带；5 档画质，稳态 3 draw call（见 §4.2） |
 | 氛围 | `src/world/island-ambience.js` | 花粉浮尘 / 薄雾带 / 海鸟（无碰撞不投影） |
 | 装配 | `src/world/island-props.js` | 25 个岛图模型 + 复用道具（货箱/木桶/矮墙/摊位/篝火）按 layout 装配 |
 | 构建分支 | `src/world/index.js` + `update.js` | `ctx.data.style === 'island'` 走海岛构建链（地形→摆放→水→氛围），含进度文案；水面/氛围按帧更新 |
@@ -332,7 +380,9 @@ node scripts/world-verify.mjs --tag=after --gpu=1     # outpost-07 回归抓取�
 ### 最终数据（v2 反馈迭代后）
 
 - 地图：140×140 m（含水域），可玩环带 r≤52 ≈ **8,494 m² ≈ 1.95×** 沙漠图（66×66=4,356 m²）
-- 碰撞盒 **470** 个（结构 78 + 复用掩体 59 + 实体植被 219 + 环礁边界环 114），22 个敌人出生点（全部 clear），9 个地标
+- 碰撞盒 **356** 个（结构 78 + 复用掩体 59 + 实体植被 219；旧版另有 114 个环礁边界环盒，已随岩脊删除），22 个敌人出生点（全部 clear），9 个地标
+- 海岸线（2026-11-15 重构）：水线 53.5±2.44 m 自然曲线、干沙结束 49.5、涉水夹紧 ≈57.8（水深 0.68 m，8/8 方位一致）；
+  玩家与机器人都贴地（`world.groundHeight`），沙滩湿沙/水下沙/浪花/折射全部来自同一份剖面
 - 摆放（v2 加密）：树 **63**（21 丛×3）· 椰树 20 · 芭蕉 24 · 蕨 34 · 竹 18 · 灌木 46 · 藤 30 · 倒木 11 · 草簇 200；掩体：石垒矮墙 10 · 货箱 17 · 木桶 16 · 摊位 3 · 篝火 1
 - 神殿群：9 残墙 / 2 拱门 / 1 石塔 / 2 石像 / 16 石柱 / 东西侧室 / 中轴柱廊；遗迹模型加细节后 tri 7.6k/9k/16.6k/5.2k/4.2k（wall/arch/tower/idol/column）
 - 天空/雾气：天顶蓝 [0.14,0.40,0.76]、地平雾 #a8bcc4 @0.0076、云层 `cloudOpacity 0.35`（更蓝的天空 + 大量湿雾散射）；5 条大尺度低空雾带 + 花粉 460 + 海鸟 6；环境光 0.4 / 半球光 1.28 提亮阴影
@@ -342,12 +392,39 @@ node scripts/world-verify.mjs --tag=after --gpu=1     # outpost-07 回归抓取�
 
 ### 已知 P1 / P2（不阻塞发布）
 
-- **P1 视觉**：环礁岩脊的礁石仍偏"低模锥块"（成簇/尺寸/下沉已做，但形状重复感还在）——下一轮美术迭代可换更细的礁岩模型或增加形状变体。
+- ~~**P1 视觉**：环礁岩脊的礁石偏"低模锥块"~~ —— 岩脊已整体移除（见 §10.1），该 P1 关闭。
+- **P1 视觉（新）**：水下沙底的 seabed capture 在 1024²（0.25 m/texel、无 mip）下对比度偏低，40–90 m 处可能极轻微闪烁；需要时把 capture 范围从 ±130 m 收窄或加 mip 即可。
 - **P2**：岛图 4 条 map-audit 空气墙均为预期障碍（栈桥护栏 ×2、晒架 ×1–2）；`robot` 可达率按全图统计 37–39%，但**可玩环 r≤52 内四象限 99–100% 可达**（环外海面/礁石计入不可达属正常口径；99.5% 少量死区来自新增矮墙/围合院角）；JETTY 地标在栈桥甲板上，机器人不上桥属设计取舍。
 - **P2（植被碰撞权衡）**：实体植被碰撞落位后，审计的安全余量口径 `robot_r105_nav`（r=1.05 m）ring 97.5%→2.6%、22 个 spawn 不可达；同理 boss 半径 1.35 按 safety 口径复算 97.9%→1.6%。实际游戏只建 light 0.58 / heavy 0.72 两套 NavGrid（`src/enemies.js navFor()`），Boss 用 heavy 网格 + 独立 spawn 搜索（clearance 1.45），按真实底盘半径复算游戏内网格零回归（rifleman 99.5→99.4 / heavy 99.5→99.4 / warlord 97.3→96.2）。**未来若新增半径 >1.05 m 的底盘需重新评估 jungle 寻路**。
 - **P2**：天空云层已通过 `cloudOpacity=0.35` 大幅压低，仅极低机位保留极淡云带；草纹理在近距离有斜向笔触感、树冠仍有卡片感。
 - 修复记录：`barrel.js` 的 outpost 站点第二排木桶硬编码坐标会导致岛图 4 个木桶悬空（0.94m），已改为仅 outpost 生效；`v2` 篝火碰撞高度 0.55→0.45 消除矮障碍空气墙误报；`driftwood` footprint 3.4×1.5→2.2×0.65 贴合枯木；`jungle-tree`/`vine-drape` 的内联注释/标签乱码已修复。
 - 修复记录（用户反馈"小岛树木等模型没有碰撞体积"）：`formats/v2.js` 新增 `VEGETATION_FOOTPRINTS`，为实体植被派生树干级碰撞盒（巨冠乔木 63、椰树 20×2 段、竹丛 18 丛×4 竹竿、倒木 11×4 段，共 **219** 盒；见 §3 表）；软植被（灌木/芭蕉/蕨/草/藤）保持可穿过。碰撞盒 251→470；`world-check` 追加 island 植被碰撞回归断言（实体植被必须有盒、软植被必须无盒、盒宽不得失控）。map-audit 复核：空气墙维持 4 条预期（0 新增 top-only）、玩家可玩环 r≤52 可达 99.7%（与改造前一致）、机器人 r=0.58 环 99.4%（-0.1%）、0 console error；r=1.05 安全余量变体因新增树干障碍从 97.5% 降至 2.6%（实际游戏只用 0.58/0.72 两套 NavGrid，见 §10 说明）。
+
+---
+
+## 10.1 海岸线重构（2026-11-15，用户反馈："海边石头墙移除 + 透明海水 + 沙滩可走"）
+
+**用户需求**：移除围着海边的石墙；海水要能看透、有波浪、有正常折射；玩家能走到沙滩边缘踩水。整体优化场景。
+
+**做法**：新增 `src/world/island-shore.js` 作为唯一海岸线真相源（单调径向剖面 + 512 texel LUT + 3 谐波 warp），
+地形/玩家/敌人/水体/浪花全部读同一份剖面；删除礁石环（视觉 + 114 个碰撞盒）；改写海面为真实位移 + 折射 + Beer-Lambert 的
+透明水体 + 浪花带 + 湿沙带；玩家/机器人改为贴地 + 水中半径夹紧。
+
+| 指标 | 改造前 | 改造后 |
+| --- | --- | --- |
+| 礁石环碰撞盒 | 116（r≈48.5–56.5 闭合） | **0** |
+| 地形三角形 | 57,633（岩脊 28,204） | **30,101** |
+| 碰撞盒总数 | 470 | **356** |
+| 海面 | 4 verts / 2 tris 平坦色膜，无光照模型 | 41,472 tris（medium）位移海面 + 折射 + 焦散 + 浪花 + 湿沙，3 draw call |
+| 海底可见度（俯视高反差棋盘注入） | — | `stripeVisibility 0.806`、`detailCorr 0.906` |
+| 玩家走向水面 | 停在 r≈49.9–50.4（礁石环前），脚离地最多 0.30 m | 8/8 方位停在 `guardRadiusAt` 56.46–59.03 m，**水深恒 0.68 m**，脚误差 0.004 m |
+| 沿海岸线行走 | 浮空 1.165 m（走不了） | 连续行走 12.18 m，脚误差 0.001 m |
+| 波浪 | 法线假波 | 顶点真实位移（4 波列 + 碎浪），4 帧画面运动 0.88（阈值 0.25） |
+| 画质分档 | 1 档 | 5 档（lowest 无 capture → ultra 2048² + 123.7k tri） |
+
+**验证**：`node scripts/check.mjs` / `world-check`（3 图 0 warning）/ `scripts/shore-probe.mjs`（18/18 断言，
+before / after / 5 档 / outpost-07 / test-range 全量回归）/ 目视（`shots/shore-before/` ↔ `shots/shore/`、`shots/shore-beauty/`）。
+物体：玩家涉水减速 35%、敌人不会游泳（同夹紧）、栈桥桩基下沉到真实水线。
 
 ---
 
@@ -385,6 +462,7 @@ node scripts/world-verify.mjs --tag=after --gpu=1     # outpost-07 回归抓取�
 
 - 环境音是**全局床**而非空间声源：不随玩家靠近海岸 / 树林实时改变比例。若后续需要，可在 `update()` 里按玩家位置给 `surf/leaves` 做距离与朝向加权；
 - 天气（雨、雷、不同时段）暂无变体，音床参数固定为"清晨湿雾"氛围。
+
 
 
 

@@ -4,7 +4,7 @@
  *
  *   node scripts/verify-standalone.mjs [file]
  *
- * 默认验证 sandstrike.html。检查项（campaign flow，2024 重构后）：
+ * 默认验证 dist/sandstrike.html（构建产物目录，见 scripts/build-standalone.mjs）。检查项（campaign flow，2024 重构后）：
  * 1. 用 file:// 直接打开（无服务器、无 module import）能完成加载并显示主菜单；
  * 2. 页面请求全部是 file:// / data:，没有任何网络请求；
  * 3. 真实点击 NEW GAME → 难度卡 STANDARD 后进入 playing（outpost-07 / standard），能推进波次、
@@ -20,9 +20,9 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const FILE = resolve(process.argv[2] || 'sandstrike.html');
+const FILE = resolve(process.argv[2] || 'dist/sandstrike.html');
 if (!existsSync(FILE)) {
-  console.error(`找不到单文件构建产物：${FILE}\n请先运行 node scripts/build-standalone.mjs`);
+  console.error(`找不到单文件构建产物：${FILE}\n请先运行 node scripts/build-standalone.mjs（产物在 dist/）`);
   process.exit(1);
 }
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';

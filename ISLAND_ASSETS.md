@@ -313,7 +313,7 @@ function buildJungleTrees(ctx, preview) {
 ## 7. 验收标准（每个模型/每个纹理）
 
 1. `node scripts/check.mjs` —— 语法/引用全绿（Lead 统一跑）。
-2. 舞台可加载：`stage.html?m=<id>&dev`，`window.__stage.errors` 为空。
+2. 舞台可加载：`http://127.0.0.1:5199/?tab=models&m=<id>`（先 `npm run dev:tools`），`window.__stage.errors` 为空。
 3. `window.__stage.stats()`：`triangles ∈ [预算下限, 预算上限]`，`minY ∈ [-0.05, 0.05]`。
 4. `window.__stage.missingMaterials()` 不含本模型用到的键。
 5. 四视图截图（3/4、FRONT、SIDE、BACK）目测：轮廓成立、叶卡不出现整片实心、茅草/石砌有层次、贴地。
@@ -322,7 +322,7 @@ function buildJungleTrees(ctx, preview) {
 
 ### 7.1 自检命令（每位作者交付前必须跑）
 
-开发服务器已在 `http://127.0.0.1:8080` 运行（`node serve.mjs`）。
+游戏开发服务器在 `http://127.0.0.1:8080`（`node serve.mjs`）；模型舞台 / 截图自动化走 dev tools：`npm run dev:tools` → `http://127.0.0.1:5199/`。
 
 ```powershell
 # 1) 语法
@@ -344,7 +344,7 @@ $env:GPU='1'; node .scratch/island/tex-sheet.mjs --only=thatch,bamboo,mossStone 
 #    -> 生成 ALBEDO / NORMAL / ROUGH 三联缩略图（数据直接来自运行时纹理库）
 ```
 
-> `stage.html` 会一次性加载**全部**模型模块：如果别的作者正在写文件导致 boot 报错，
+> dev tools 的模型查看器（`http://127.0.0.1:5199/?tab=models`）会一次性加载**全部**模型模块：如果别的作者正在写文件导致 boot 报错，
 > 先确认报错文件不在自己 scope 内，等 1–2 分钟重试；持续失败就报给 Lead。
 
 
@@ -386,7 +386,7 @@ $env:GPU='1'; node .scratch/island/tex-sheet.mjs --only=thatch,bamboo,mossStone 
 
 | 成员 | 写作用域 | 交付 |
 | --- | --- | --- |
-| Lead | `ISLAND_ASSETS.md`、`src/world/materials.js`、`src/world/architecture.js`、`src/textures/index.js`、`src/models/world/index.js`、`src/models/world/island/index.js`、`src/models-viewer.js`、`MODELS.md`、`README.md` | 契约、接线、集成、最终回归与交付 |
+| Lead | `ISLAND_ASSETS.md`、`src/world/materials.js`、`src/world/architecture.js`、`src/textures/index.js`、`src/models/world/index.js`、`src/models/world/island/index.js`、`dev_tools/ui/src/components/ModelViewer.jsx`、`dev_tools/ui/src/stage/model-stage.js`、`MODELS.md`、`README.md` | 契约、接线、集成、最终回归与交付 |
 | texture-flora | `src/textures/island-flora.js`、`jungle-grass.js`、`leaf-litter.js`、`broadleaf.js`、`tropical-frond.js`、`beach-sand.js` | 5 套植被纹理 + 聚合 |
 | texture-structure | `src/textures/island-structure.js`、`thatch.js`、`tropical-bark.js`、`bamboo.js`、`moss-stone.js`、`woven-wall.js` | 5 套结构纹理 + 聚合 |
 | flora-canopy | `src/models/world/island/flora-canopy.js`、`jungle-tree.js`、`coconut-palm.js`、`vine-drape.js` | F1/F2/F7 |

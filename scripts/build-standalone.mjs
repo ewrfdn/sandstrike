@@ -8,9 +8,12 @@
  * 单文件 HTML。
  *
  * 用法：
- *   node scripts/build-standalone.mjs                 # -> sandstrike.html
+ *   node scripts/build-standalone.mjs                 # -> dist/sandstrike.html
  *   node scripts/build-standalone.mjs --out=demo.html
  *   node scripts/build-standalone.mjs --no-minify     # 方便调试/定位问题
+ *
+ * 产物固定写到 dist/（构建产物目录，不进源码树、已 gitignore），不再和
+ * index.html / src 放在一起。验证：node scripts/verify-standalone.mjs。
  *
  * 注意：单文件版本不读取 index.html 的 importmap，也不发起任何网络请求。
  */
@@ -22,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
 const outArg = argv.find((arg) => arg.startsWith('--out='))?.slice('--out='.length);
-const OUT = resolve(ROOT, outArg || 'sandstrike.html');
+const OUT = resolve(ROOT, outArg || 'dist/sandstrike.html');
 const MINIFY = !argv.includes('--no-minify');
 
 const fail = (message) => {
@@ -124,7 +127,7 @@ if (html.includes('./styles.css') || html.includes('./src/main.js')) {
 
 html = html.replace(
   '<!DOCTYPE html>',
-  '<!DOCTYPE html>\n<!-- 由 scripts/build-standalone.mjs 生成：单文件、可离线双击运行。源文件在 index.html / src / styles.css。 -->',
+  '<!DOCTYPE html>\n<!-- 由 scripts/build-standalone.mjs 生成：单文件、可离线双击运行。源文件在 index.html / src / styles.css，产物在 dist/。 -->',
 );
 
 // ---------------------------------------------------------------------------

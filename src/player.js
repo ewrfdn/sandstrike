@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config/index.js';
 import { emit } from './bus.js';
 import { clamp, damp, rand } from './utils.js';
+import { clampToGuard } from './world/island-shore.js';
 
 const P = CONFIG.player;
 const LOOT = CONFIG.loot || {};
@@ -54,6 +55,8 @@ export class Player {
     this.sprinting = false;
     this.crouching = false;
     this.grounded = true;
+    /** True while the feet are in the sea shallows (wading slowdown / QA probes). */
+    this.wading = false;
     this.yaw = 0;
     this.pitch = 0;
     this.lookPitch = 0;
@@ -423,6 +426,12 @@ export class Player {
     let speed = this.sprinting ? P.sprintSpeed : this.crouching ? P.crouchSpeed : P.walkSpeed;
     if (this.aiming) speed = Math.min(speed, P.adsSpeed);
     speed *= this.speedMultiplier;
+    // Wading: the tropical beach slopes under the sea, so once the sand under the feet is below
+    // sea level the player is ankle/knee deep — 35 % slower and no sprint surge through the
+    // surf. Flat maps have no shore profile and keep the old speed exactly.
+    const shore = this.world.shoreProfile;
+    this.wading = !!shore && this._groundY(this.position.x, this.position.z) < shore.level - 0.02;
+    if (this.wading) speed *= 0.65;
 
     const len = Math.hypot(inputX, inputZ);
     if (len > 0) { inputX /= len; inputZ /= len; }
@@ -468,13 +477,37 @@ export class Player {
     }
     this._wasGrounded = this.grounded;
 
-    // hard floor safety
-    if (this.position.y < 0) { this.position.y = 0; this.velocity.y = 0; this.grounded = true; }
+    // hard floor safety — the island sand runs below y = 0 all the way down to the waterline,
+    // so the old "y < 0 => 0" clamp would pop the player back up onto the beach. Clamp to the
+    // walkable terrain height instead (0 on flat maps => old behaviour) ; this only catches a
+    // body that somehow ended up under the world, it is not a floor.
+    const floor = this._groundY(this.position.x, this.position.z);
+    if (this.position.y < floor - 0.001) {
+      this.position.y = floor;
+      this.velocity.y = 0;
+      this.grounded = true;
+    }
 
     // bounds
     const b = this.world.mapBounds;
     this.position.x = clamp(this.position.x, b.minX + this.radius + 0.08, b.maxX - this.radius - 0.08);
     this.position.z = clamp(this.position.z, b.minZ + this.radius + 0.08, b.maxZ - this.radius - 0.08);
+
+    // Wading guard: the reef-ring colliders are gone, so the sea itself is the only wall left.
+    // `clampToGuard` is an exact radial clamp against the warped waterline (~knee depth): it
+    // stops the player at the same wading depth on every bearing and, because the outward
+    // velocity half is removed, running into the surf slides them along the shore instead of
+    // stopping dead. No-op on maps without shore data (outpost / range).
+    if (shore && clampToGuard(shore, this.position)) {
+      const r = Math.hypot(this.position.x, this.position.z) || 1;
+      const nx = this.position.x / r;
+      const nz = this.position.z / r;
+      const outward = this.velocity.x * nx + this.velocity.z * nz;
+      if (outward > 0) {
+        this.velocity.x -= outward * nx;
+        this.velocity.z -= outward * nz;
+      }
+    }
 
     // --- footsteps --------------------------------------------------------
     const horizontalSpeed = this.speed;
@@ -530,9 +563,20 @@ export class Player {
     }
   }
 
+  /**
+   * Walkable terrain height at (x, z). The tropical island exposes a warped sand profile
+   * (`world.groundHeight`); every other map has no such data and stays at the old flat y = 0
+   * baseline, so outpost / test-range behaviour is unchanged.
+   */
+  _groundY(x, z) {
+    const fn = this.world && this.world.groundHeight;
+    return typeof fn === 'function' ? fn(x, z) : 0;
+  }
+
   _supportHeight(x, z, prevY, newY) {
     const r = this.radius * 0.82;
-    let top = 0;
+    // The sand is the baseline support (not 0): the beach slopes down under the sea.
+    let top = this._groundY(x, z);
     const ceiling = Math.max(prevY + 0.32, newY + 0.02);
     for (let i = 0; i < this.world.collisionBoxes.length; i++) {
       const box = this.world.collisionBoxes[i];

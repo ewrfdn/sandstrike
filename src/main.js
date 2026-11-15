@@ -27,29 +27,9 @@ const isDev = params.has('dev');
 // Optional map selection: `?map=<id>` picks one folder from src/config/maps/.
 // Unknown ids are ignored by createWorld(), which falls back to the default map.
 const requestedMapId = params.get('map') || null;
-
-// Dev-only shortcut to the isolated model viewer (models.html is gated by ?dev).
-if (isDev) {
-  const mountViewerLink = () => {
-    if (document.getElementById('dev-model-viewer-link')) return;
-    const link = document.createElement('a');
-    link.id = 'dev-model-viewer-link';
-    link.href = './models.html?dev';
-    link.target = '_blank';
-    link.rel = 'noopener';
-    link.textContent = '模型预览 MODEL VIEWER';
-    link.style.cssText = [
-      'position:fixed', 'right:14px', 'bottom:14px', 'z-index:9999',
-      'padding:8px 12px', 'background:rgba(20,16,12,.88)',
-      'border:1px solid rgba(255,138,60,.45)', 'border-radius:4px',
-      'color:#ffb27a', 'font:700 11px/1.2 "Cascadia Mono",Consolas,monospace',
-      'letter-spacing:.08em', 'text-decoration:none', 'pointer-events:auto',
-    ].join(';');
-    document.body.appendChild(link);
-  };
-  if (document.body) mountViewerLink();
-  else document.addEventListener('DOMContentLoaded', mountViewerLink, { once: true });
-}
+// NOTE: dev tooling (model / map viewers) is a separate Vite app under
+// `dev_tools/` and is no longer linked from the game — start it with
+// `npm run dev:tools` (http://127.0.0.1:5199/). See dev_tools/README.md.
 
 // ---------------------------------------------------------------------------
 // Mobile mode: phones/tablets (or ?touch=1) get the touch control layer,

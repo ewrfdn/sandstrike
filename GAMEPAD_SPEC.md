@@ -35,7 +35,7 @@ index layout as a best effort.
 
 | Owner | Files |
 |---|---|
-| Lead | `GAMEPAD_SPEC.md`, `src/main.js`, `src/player.js`, `src/config/game.js`, `scripts/check.mjs`, `package.json`, `README.md`, `sandstrike.html` (build output) |
+| Lead | `GAMEPAD_SPEC.md`, `src/main.js`, `src/player.js`, `src/config/game.js`, `scripts/check.mjs`, `package.json`, `README.md`, `dist/sandstrike.html` (build output, ignored) |
 | gamepad-input | `src/gamepad.js` (new input module) — nothing else |
 | gamepad-ui | `src/ui.js`, `styles.css` — nothing else |
 | gamepad-qa | `scripts/gamepad-probe.mjs` (new), `shots/gamepad-*` — nothing else |
@@ -480,7 +480,8 @@ was last used. Style it subtly (amber border + corner tick; no new text row).
 ## 7. Single-file build (Lead)
 
 After the feature lands, run `node scripts/build-standalone.mjs` and keep
-`sandstrike.html` in sync; `node scripts/verify-standalone.mjs` must still pass.
+`dist/sandstrike.html` (build output, `dist/` is ignored) in sync;
+`node scripts/verify-standalone.mjs` must still pass.
 
 ## 8. `scripts/gamepad-probe.mjs` (gamepad-qa)
 

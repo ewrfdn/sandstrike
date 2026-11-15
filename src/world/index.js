@@ -275,6 +275,16 @@ export async function createWorld(scene, renderer, { quality = 'high', onProgres
     mapName: (ctx.data && typeof ctx.data.name === 'string' && ctx.data.name) || loaded.mapId,
     /** 'island' for tropical maps, 'outpost' for the desert / range maps (audio bed switch). */
     style: islandStyle ? 'island' : 'outpost',
+    /**
+     * Shared shoreline contract (only the island builder produces it; `undefined` on the flat
+     * outpost / range maps, so consumers must be undefined-safe and fall back to y = 0):
+     *  - groundHeight(x, z): walkable sand height at any world position,
+     *  - shore:       { guardRadiusAt(bearing) } — the exact radial wading guard,
+     *  - shoreProfile: full profile (heights, waterline, LUT uniforms) for the ocean pass.
+     */
+    groundHeight: typeof ctx.groundHeight === 'function' ? ctx.groundHeight : undefined,
+    shore: islandStyle ? ctx.shoreGuard : undefined,
+    shoreProfile: islandStyle ? ctx.shoreProfile : undefined,
     update(dt, time) {
       updateWorld(ctx, dt ?? 0.016, time ?? performance.now() / 1000);
     },

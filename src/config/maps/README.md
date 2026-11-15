@@ -358,7 +358,7 @@ terrain, environment, dressing                                // 构建器直接
 约束：
 
 - 数据层**不得 import three / DOM**，输出必须是纯数据（无函数、无 THREE 对象），
-  因为 `model-stage.js` 会 `structuredClone(ctx.data)`；`validateMapData()` 会拒绝非常规对象。
+  因为 `dev_tools/ui/src/stage/model-stage.js` 会 `structuredClone(ctx.data)`；`validateMapData()` 会拒绝非常规对象。
 - `layout` 的元素形状与旧 `buildWorldData()` 完全一致（模型构建器 `src/models/world/*` 直接读它）；
   `barrels.yaw`、`palms.ry` 由适配器按旧公式推导。
 - 未注册的 `?map=<id>` 会抛错（错误信息带可用 id 列表）并回落到默认地图。

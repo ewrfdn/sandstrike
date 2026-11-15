@@ -8,7 +8,10 @@
  *   node scripts/model-shots.mjs --quality=medium      # faster textures
  *   node scripts/model-shots.mjs --single=truck,side,base   # one close-up
  *
- * Requires the dev server (node serve.mjs) on BASE_URL (default :8080).
+ * Requires the dev-tools server (`npm run dev:tools`) on TOOLS_URL
+ * (default http://127.0.0.1:5199). The page is opened in automation mode
+ * (`?automation=1&tab=models`), which renders the model stage full-bleed and
+ * exposes the same `window.__stage` API the old stage.html used.
  * Set GPU=1 to use the real D3D11 GPU instead of SwiftShader.
  */
 import { chromium } from 'playwright-core';
@@ -16,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const BASE = process.env.BASE_URL || 'http://127.0.0.1:8080';
+const BASE = process.env.TOOLS_URL || 'http://127.0.0.1:5199';
 const argv = process.argv.slice(2);
 const flag = (name, fallback = null) => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
@@ -41,7 +44,7 @@ page.on('console', (m) => { if (m.type() === 'error') logs.push(`[error] ${m.tex
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 
 const t0 = Date.now();
-await page.goto(`${BASE}/stage.html?quality=${QUALITY}`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${BASE}/?automation=1&tab=models&quality=${QUALITY}`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => window.__stage?.ready === true || window.__stage?.bootError, null, { timeout: 240000 });
 const bootError = await page.evaluate(() => window.__stage?.bootError || null);
 if (bootError) {

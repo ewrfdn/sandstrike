@@ -17,6 +17,7 @@
  * imports it directly.
  */
 import { MAP_SOURCES, DEFAULT_MAP_ID } from '../../config/maps/index.js';
+import { shoreProfile } from '../island-shore.js';
 import {
   MAP_FORMAT,
   MAP_FORMATS,
@@ -237,16 +238,12 @@ function validateIslandMapData(data, errors) {
   const terrain = requireObject(errors, data.terrain, 'data.terrain');
   const islandShape = requireObject(errors, terrain.island, 'data.terrain.island');
   const sea = requireObject(errors, terrain.sea, 'data.terrain.sea');
-  const boundary = requireObject(errors, terrain.boundary, 'data.terrain.boundary');
   for (const [object, path, fields] of [
     [islandShape, 'data.terrain.island', ['grassRadius', 'beachInner', 'landRadius']],
     [sea, 'data.terrain.sea', ['level', 'bedOuter', 'bedDrop']],
-    [boundary, 'data.terrain.boundary', ['radius', 'segments', 'height', 'thickness']],
   ]) {
     for (const field of fields) check(errors, isFiniteNumber(object?.[field]), `${path}.${field}: expected a number`);
   }
-  check(errors, isFiniteNumber(islandShape?.landRadius) && islandShape.landRadius > Number(boundary?.radius ?? 0),
-    'data.terrain.island.landRadius must exceed data.terrain.boundary.radius');
 
   const environment = requireObject(errors, data.environment, 'data.environment');
   const sky = requireObject(errors, environment.sky, 'data.environment.sky');
@@ -259,17 +256,19 @@ function validateIslandMapData(data, errors) {
   requireColor(errors, environment.lights?.sun?.color, 'data.environment.lights.sun.color');
 
   // Every placement must still land near the island (jetties legitimately reach into the
-  // water, so they get a larger radius allowance than the rest).
-  const radius = Number(boundary?.radius);
-  if (isFiniteNumber(radius)) {
+  // water, so they get a larger radius allowance than the rest). The reef-ring collider is
+  // gone; the playable edge is the wading guard from the shared shoreline profile
+  // (`island-shore.js`), which is the only radius that has to contain the layout.
+  if (isFiniteNumber(islandShape?.landRadius)) {
+    const guardRadius = shoreProfile(terrain).guardRadius;
     for (const [group, keys] of Object.entries(ISLAND_LAYOUT_KEYS)) {
       for (const key of keys) {
-        const allowance = key === 'jetties' ? radius + 14 : group === 'shore' ? radius + 8 : radius + 6;
+        const allowance = key === 'jetties' ? guardRadius + 14 : group === 'shore' ? guardRadius + 8 : guardRadius + 6;
         for (const [index, item] of (island[key] ?? []).entries()) {
           if (!isPlainObject(item)) continue;
           const r = Math.hypot(item.x, item.z);
           if (r > allowance) {
-            errors.push(`data.layout.island.${key}[${index}]: (${item.x}, ${item.z}) is outside the playable ring (r=${r.toFixed(1)})`);
+            errors.push(`data.layout.island.${key}[${index}]: (${item.x}, ${item.z}) is outside the playable shore (r=${r.toFixed(1)}, allowance=${allowance.toFixed(1)})`);
           }
         }
       }

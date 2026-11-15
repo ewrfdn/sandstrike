@@ -8,7 +8,8 @@ import { createUnitGeos, disposeUnitGeos, createRobotBaseMaterials, createRigMat
 // module-evaluation time), so the live bindings are initialised before any call.
 
 /* ================================================================== *
- *  DEV -- isolated chassis previews for the model stage (stage.html)
+ *  DEV -- isolated chassis previews for the dev model stage
+ *  (dev_tools/ui/src/stage/model-stage.js + ModelViewer).
  *  Mirrors Robot._basePose plus representative aim/walk poses so a single
  *  chassis can be inspected on an empty platform from every angle.
  * ================================================================== */

@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node serve.mjs",
+    "dev:tools": "vite dev_tools/ui",
+    "build:tools": "vite build dev_tools/ui",
+    "preview:tools": "vite preview dev_tools/ui",
     "build:html": "node scripts/build-standalone.mjs",
     "check": "node scripts/check.mjs",
     "check:maps": "node scripts/world-check.mjs",
@@ -15,10 +18,15 @@
     "qa:weapons": "node scripts/weapons-probe.mjs",
     "qa:boss": "node scripts/boss-probe.mjs",
     "qa:boss-balance": "node scripts/boss-balance-probe.mjs",
-    "qa:standalone": "node scripts/verify-standalone.mjs"
+    "qa:standalone": "node scripts/verify-standalone.mjs",
+    "qa:devtools": "node scripts/dev-tools-smoke.mjs"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
     "esbuild": "^0.25.12",
-    "playwright-core": "^1.56.1"
+    "playwright-core": "^1.56.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "vite": "^7.3.8"
   }
 }

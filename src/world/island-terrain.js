@@ -1,30 +1,40 @@
 /**
  * SANDSTRIKE // ATOLL-09 tropical island ground.
  *
- * Everything the player can reach is a flat y=0 plateau inside the reef ring
- * (`terrain.boundary.radius`); it is wrapped by a sand beach (wetted down to the waterline
- * and dipping under the ocean plane), a sloping sand lagoon bed and the open ocean
- * (island-water.js). A rugged reef-rock belt closes the play ring; every rock is generated
- * *inside* its collider box footprint (`boundarySegments()`), so the visible barrier and the
- * invisible one use the exact same numbers and `map-audit` never reports an air wall.
+ * The play ring is open: the reef-rock belt that used to close the shoreline is gone, so the
+ * sand runs continuously from the jungle plateau out under the sea and the player can walk
+ * the whole beach down to the shallows (`island-shore.js` owns the numbers). Every sand shell
+ * in this file — the beach face, the lagoon/seabed bed, the shell/wrack scatter on top of
+ * them — samples that one shared profile, so the dry apron, the damp band, the wet line and
+ * the submerged sand all sit on the same surface and cross-fade by depth instead of by radius:
+ *
+ *   plateau (y≈0) ── dry apron ── beach face ── waterline ── wading shelf ── lagoon slope ── open sea
+ *
+ * The waterline itself is warped per bearing (`shoreProfile().Y()`), which is why every ring
+ * builder here adds `warpRadius(angle)` to its radii instead of assuming a circle.
  *
  * Cheap-but-organic look:
- *   - one merged mesh per material (ground / litter / beach / scatter / lagoon / ridge),
+ *   - one merged mesh per material (ground / litter / beach / scatter / lagoon / coral),
  *   - world-scaled UVs (~4 m per grass tile) so there is no visible texture seam,
  *   - vertex-colour storytelling: jungle litter under trees, trodden trails between the
- *     landmarks, darker wet sand below the tide line, turquoise-to-deep-blue lagoon bed,
- *   - deterministic `valueNoise` patches -?no external assets, no runtime cost.
+ *     landmarks, damp/wet sand driven by height above sea level, turquoise-to-deep-blue
+ *     lagoon bed driven by `profile.depthAt`, coral heads, seagrass, shells and wrack,
+ *   - deterministic `valueNoise` patches — no external assets, no runtime cost.
+ *
+ * Underwater meshes are tagged `userData.seabed = true` (beach / lagoon bed / coral /
+ * beach scatter / tideline): the ocean pass captures those as the refracted bottom.
  *
  * Contract (see ISLAND_MAP_SPEC.md §4.1):
  *   buildIslandTerrain(ctx) -> { ground }
- * `ctx.ground` points at the grass mesh named `ground` (raycasts / floor / bullets).
+ * `ctx.ground` points at the grass mesh named `ground` (raycasts / floor / bullets);
+ * `ctx.groundHeight` / `ctx.shoreProfile` / `ctx.shoreGuard` feed the walkable-height and
+ * wading-guard contracts consumed by `player.js` / `enemies.js`.
  */
 import * as THREE from 'three';
 import { TAU } from '../models/core.js';
 import { makeRNG } from '../utils.js';
-import { boundarySegments, playRadius } from './island-shape.js';
 import { rockGeo, cylGeo } from '../models/world/detail.js';
-import { ensureBatches } from './architecture.js';
+import { shoreProfile, warpRadius } from './island-shore.js';
 
 // --------------------------------------------------------------------------- math bits
 
@@ -60,6 +70,33 @@ function noise2(x, y) {
 function fbm(x, y) {
   return (noise2(x, y) * 0.62 + noise2(x * 2.07 + 5.2, y * 2.07 - 3.1) * 0.38) / 1.0;
 }
+
+// ------------------------------------------------------------ shoreline helpers
+
+/**
+ * Metres seaward of the warped waterline where the beach ring hands over to the lagoon bed.
+ * The two rings evaluate the *same* profile height on that radius (see `seamRadius()`), so
+ * they meet on identical boundary vertices: one continuous sand surface, no seam, no overlap.
+ */
+const BEACH_SEAM = 2.2;
+
+/** Flat-profile radius `radius` expressed as a world radius on `angle` (adds the bearing warp). */
+const warped = (radius, angle) => radius + warpRadius(angle);
+
+/** World radius where the beach mesh ends and the lagoon/seabed mesh begins. */
+const seamRadius = (profile, angle) => profile.waterlineAt(angle) + BEACH_SEAM;
+
+/**
+ * Sand colour story: one curve from dry dune sand through damp/wet to submerged sand.
+ * The underwater entries stay *pale*: the tropical water is genuinely transparent now
+ * (Beer-Lambert absorption + in-scatter live in the ocean shader), so the bed must keep a
+ * bright neutral-warm sand value and let the water supply every bit of blue/green. A dark
+ * "deep seabed" palette here (the old opaque-ocean look) composites into a murky grey band.
+ */
+const SAND_DRY = [1.06, 0.94, 0.70];
+const SAND_DAMP = [0.74, 0.62, 0.43];
+const SAND_WET = [0.54, 0.45, 0.34];
+const SAND_SUBMERGED = [0.84, 0.82, 0.68];
 
 // ------------------------------------------------------------------ geometry builder
 
@@ -101,7 +138,7 @@ function builder() {
 
 /**
  * Push an annulus (or disc when `inner` is 0) into a builder.
- * `outer` may be a function of the angle for a naturally irregular rim.
+ * `inner` / `outer` may each be a function of the angle for a naturally irregular rim.
  */
 function pushRing(b, { inner, outer, rings, segments, uvTile = 4, y = 0, color, shade }) {
   const rows = [];
@@ -110,8 +147,9 @@ function pushRing(b, { inner, outer, rings, segments, uvTile = 4, y = 0, color, 
     const row = [];
     for (let si = 0; si <= segments; si++) {
       const angle = (si / segments) * TAU;
+      const rin = typeof inner === 'function' ? inner(angle) : inner;
       const ro = typeof outer === 'function' ? outer(angle) : outer;
-      const radius = inner + (ro - inner) * t;
+      const radius = rin + (ro - rin) * t;
       const x = Math.sin(angle) * radius;
       const z = Math.cos(angle) * radius;
       const height = typeof y === 'function' ? y(radius, x, z, angle) : y;
@@ -184,7 +222,7 @@ function pushGeo(b, geo, matrix, color, uvTile = 1.2) {
   return start;
 }
 
-function addMesh(ctx, geo, material, name, { shadows = true, surface = null, cast = false } = {}) {
+function addMesh(ctx, geo, material, name, { shadows = true, surface = null, cast = false, seabed = false } = {}) {
   const mesh = new THREE.Mesh(geo, material);
   mesh.name = name;
   mesh.matrixAutoUpdate = false;
@@ -192,94 +230,13 @@ function addMesh(ctx, geo, material, name, { shadows = true, surface = null, cas
   mesh.castShadow = cast;
   mesh.receiveShadow = shadows;
   if (surface) mesh.userData.surface = surface;
+  // Underwater sand shells / coral / scatter: the ocean pass captures these as the refracted
+  // bottom (they stay raycast-visible and in `collideMeshes`; this flag is not "no collision").
+  if (seabed) mesh.userData.seabed = true;
   ctx.scene.add(mesh);
   ctx.objects.push(mesh);
   ctx.disposables.push(geo);
   return mesh;
-}
-
-// ------------------------------------------------------------- smooth boulder geometry
-
-/**
- * Smooth-shaded boulder: icosahedron topology with position-based jitter and blended
- * (smooth + facet) normals, so the reef belt reads as weathered rock rather than low-poly
- * crystals. Returns a unit-radius shell (max jitter 1.22) to be scaled by the caller.
- */
-function lumpGeo({ detail = 1, seed = 1, flatten = 0.8, amp = 0.26, fine = 0.08, facet = 0.45 } = {}) {
-  const geo = new THREE.IcosahedronGeometry(1, detail);
-  const pos = geo.attributes.position;
-  const v = new THREE.Vector3();
-  const round = (x) => Math.round(x * 1500);
-  const keyOf = (x, y, z) => `${round(x)},${round(y)},${round(z)}`;
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    const n1 = Math.sin(v.x * 2.7 + v.y * 3.1 + v.z * 3.9 + seed * 5.3);
-    const n2 = Math.sin(v.x * 12.7 - v.y * 11.3 + v.z * 16.7 + seed * 2.9);
-    const n3 = Math.sin(v.x * 31.1 + v.y * 27.7 - v.z * 39.3 + seed * 1.7);
-    const k = 1 + n1 * amp * 0.5 + n2 * fine + n3 * fine * 0.45;
-    const py = v.y * k * flatten;
-    // flat-bottomed shells (half-buried boulder) with a strongly blunted crown so the
-    // reef reads as weathered rock instead of a row of teeth
-    const topY = py > 0.42 ? 0.42 + (py - 0.42) * 0.4 : py;
-    pos.setXYZ(i, v.x * k, py < 0 ? py * 0.24 : Math.min(topY, 0.82), v.z * k);
-  }
-  pos.needsUpdate = true;
-  const buckets = new Map();
-  const a = new THREE.Vector3();
-  const bb = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-  const face = new THREE.Vector3();
-  const triCount = pos.count / 3;
-  const faces = new Float32Array(triCount * 3);
-  for (let t = 0; t < triCount; t++) {
-    const i = t * 3;
-    a.fromBufferAttribute(pos, i);
-    bb.fromBufferAttribute(pos, i + 1);
-    c.fromBufferAttribute(pos, i + 2);
-    ab.subVectors(bb, a);
-    ac.subVectors(c, a);
-    face.crossVectors(ab, ac).normalize();
-    faces[t * 3] = face.x;
-    faces[t * 3 + 1] = face.y;
-    faces[t * 3 + 2] = face.z;
-    for (const p of [a, bb, c]) {
-      const k = keyOf(p.x, p.y, p.z);
-      let acc = buckets.get(k);
-      if (!acc) {
-        acc = new THREE.Vector3();
-        buckets.set(k, acc);
-      }
-      acc.add(face);
-    }
-  }
-  const normals = new Float32Array(pos.count * 3);
-  const sm = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    sm.copy(buckets.get(keyOf(v.x, v.y, v.z))).normalize();
-    const t = Math.floor(i / 3);
-    const nx = sm.x * (1 - facet) + faces[t * 3] * facet;
-    const ny = sm.y * (1 - facet) + faces[t * 3 + 1] * facet;
-    const nz = sm.z * (1 - facet) + faces[t * 3 + 2] * facet;
-    const inv = 1 / Math.hypot(nx, ny, nz);
-    normals[i * 3] = nx * inv;
-    normals[i * 3 + 1] = ny * inv;
-    normals[i * 3 + 2] = nz * inv;
-  }
-  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  // spherical UVs so the rock texture never stretches over a face
-  const uv = geo.attributes.uv;
-  for (let i = 0; i < uv.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    const u = (Math.atan2(v.z, v.x) / TAU + 0.5) * 2.6;
-    const vv = (Math.asin(clamp(v.y / (1.24 * (flatten + 0.1)), -1, 1)) / Math.PI + 0.5) * 1.6;
-    uv.setXY(i, u, vv);
-  }
-  uv.needsUpdate = true;
-  geo.computeBoundingBox();
-  return geo;
 }
 
 // ------------------------------------------------------------------ terrain helpers
@@ -486,115 +443,132 @@ function buildLitter(ctx, params) {
 }
 
 // ------------------------------------------------------------------- beach & lagoon
+//
+// Both shells are rings over the *same* shared shore profile. The beach ring ends exactly
+// where the lagoon ring starts (`seamRadius()`), and both evaluate `profile.Y(x, z)` on that
+// boundary, so their boundary vertices are identical: one continuous sand surface instead of
+// two overlapping discs (no seam, no z-fighting). Dry / damp / wet / submerged colours are
+// driven by height above the sea surface — a constant-height contour — so every colour band
+// follows the warped waterline instead of a perfect circle.
 
-function makeShoreProfile({ landRadius, bedOuter, bedDrop, play }) {
-  // last flat metre before the wet slope: keeps the whole play ring at y~?
-  const spill = Math.max(landRadius - 4.5, play + 1.4);
-  const drop = 0.55;
-  const beachY = (r) => (r <= spill ? -0.004 : -0.004 - ((r - spill) / Math.max(0.001, landRadius - spill)) * drop);
-  const seabedIn = landRadius - 1.0;
-  const seabedY = (r) => {
-    const y0 = beachY(seabedIn) - 0.02;
-    const t = clamp((r - seabedIn) / Math.max(0.001, bedOuter - seabedIn), 0, 1);
-    return y0 + (bedDrop - y0) * Math.pow(t, 1.35);
-  };
-  return { spill, drop, beachY, seabedIn, seabedY };
+/** Height of the (warped) sand/seabed surface at a world position. */
+const sandY = (profile, x, z) => profile.Y(x, z);
+
+/**
+ * Sand colour story shared by the beach face and its scatter: dry dune sand -> damp band ->
+ * wet line -> submerged sand. `height` is the shared-profile height at (x, z); the transitions
+ * are height-above-sea contours, so they bend with the warped waterline.
+ */
+function sandColor(profile, x, z, height, trail = null) {
+  const above = height - profile.level; // metres above the sea surface (negative underwater)
+  const n = fbm(x * 0.16 + 2.2, z * 0.16 - 8.3);
+  const n2 = fbm(x * 0.62, z * 0.62);
+  let c = mix3(SAND_DRY, [1.0, 0.96, 0.84], clamp(n * 1.4 - 0.2, 0, 1));
+  // shallow dry ripples (per-vertex only: the walkable surface stays the smooth profile)
+  c = mix3(c, [1.0, 0.95, 0.82], smoothstep(0.66, 0.94, n2) * 0.3);
+  // Damp band: the beach only stands ~0.38 m above the sea, so the dry->damp->wet gradient is
+  // authored on ~0.3 m of height (the last 3 m of beach face — the profile owns the rest).
+  c = mix3(c, SAND_DAMP, smoothstep(0.31, 0.10, above) * 0.85);
+  // wet line: darkest in the last few centimetres above / at the waterline
+  c = mix3(c, SAND_WET, smoothstep(0.10, -0.03, above) * 0.82);
+  // submerged sand seen through the transparent shallows: pale wet sand, a touch cooler than
+  // the dry beach but never dark — the water shader does the depth tinting
+  c = mix3(c, SAND_SUBMERGED, smoothstep(-0.02, -0.9, above) * 0.62);
+  // trodden trail towards the camp / jetty (dry sand only)
+  if (trail) {
+    const onTrail = (1 - smoothstep(0.8, 2.4, trail(x, z))) * 0.55 * smoothstep(0.30, 0.36, above);
+    c = mix3(c, [0.8, 0.73, 0.58], onTrail);
+  }
+  const shade = 0.93 + 0.12 * n;
+  return [c[0] * shade, c[1] * shade, c[2] * shade];
 }
 
 function buildBeach(ctx, params) {
-  const { beachInner, landRadius, segments, seed, trail, profile, grassEdge } = params;
-  const M = ctx.materials;
+  const { beachInner, segments, seed, trail, profile, grassEdge } = params;
   const b = builder();
-  const dry = [0.9, 0.84, 0.68];
-  const dryLight = [1.0, 0.94, 0.78];
-  const damp = [0.58, 0.53, 0.42];
-  const wet = [0.36, 0.35, 0.3];
+  // 18 rows over the ~15 m beach (0.8 m spacing): enough to read the dry-apron -> beach-face
+  // break without spending triangles on the flat plateau end.
   pushRing(b, {
     inner: beachInner,
-    outer: (angle) => landRadius + 0.4 + (fbm(Math.cos(angle) * 3.4 + 9.1, Math.sin(angle) * 3.4 - 4.7) - 0.5) * 1.6,
-    rings: 14,
+    outer: (angle) => seamRadius(profile, angle),
+    rings: 18,
     segments,
     uvTile: 3.2,
-    y: (r) => profile.beachY(r),
-    color: (x, z, r) => {
-      const n = fbm(x * 0.16 + 2.2, z * 0.16 - 8.3);
-      const n2 = fbm(x * 0.62, z * 0.62);
-      let c = mix3(dry, dryLight, clamp(n * 1.4 - 0.2, 0, 1));
-      // shallow dry ripples
-      c = mix3(c, dryLight, smoothstep(0.62, 0.9, n2) * 0.32);
-      // wet band: starts before the flat-to-slope break and darkens to the waterline
-      const wetK = smoothstep(profile.spill - 2.4, landRadius - 0.6, r);
-      c = mix3(c, damp, wetK * 0.85);
-      c = mix3(c, wet, smoothstep(landRadius - 2.4, landRadius - 0.2, r) * 0.8);
-      // the underwater skirt goes darker & cooler (seen through the transparent water)
-      c = mix3(c, [0.26, 0.33, 0.3], smoothstep(landRadius - 1.0, landRadius + 0.5, r) * 0.45);
-      // trail mark across the sand towards the camp / jetty
-      const dTrail = trail(x, z);
-      const onTrail = (1 - smoothstep(0.8, 2.4, dTrail)) * 0.55;
-      c = mix3(c, [0.78, 0.71, 0.56], onTrail);
-      const shade = 0.93 + 0.12 * n;
-      return [c[0] * shade, c[1] * shade, c[2] * shade];
-    },
+    y: (r, x, z) => sandY(profile, x, z),
+    color: (x, z, r, angle, height) => sandColor(profile, x, z, height, trail),
   });
   // sand tongues spilling into the grass so the beach/grass border is not a clean circle
   const rng = makeRNG(seed + 41);
   for (let i = 0; i < 26; i++) {
     const angle = rng() * TAU;
-    const edge = grassEdge(angle);
-    const r = edge - 1.4 + rng() * 3.6;
+    const r = grassEdge(angle) - 1.4 + rng() * 3.6;
     const cx = Math.sin(angle) * r;
     const cz = Math.cos(angle) * r;
     pushPatch(b, {
-      cx, cz, radius: 0.9 + rng() * 2.4, ry: angle + (rng() - 0.5) * 0.5, y: 0.004,
+      cx, cz, radius: 0.9 + rng() * 2.4, ry: angle + (rng() - 0.5) * 0.5,
+      y: sandY(profile, cx, cz) + 0.006,
       verts: 10 + Math.floor(rng() * 4), wobble: 0.6, uvTile: 3.2, seed: seed + 400 + i,
       squash: 0.5 + rng() * 0.55,
-      color: (x, z) => mix3(dry, dryLight, fbm(x * 0.4, z * 0.4)),
+      color: (x, z) => mix3(SAND_DRY, [1.0, 0.96, 0.84], fbm(x * 0.4, z * 0.4)),
     });
   }
   const geo = b.toGeometry();
-  addMesh(ctx, geo, M.beachSand, 'island-beach', { surface: 'sand' });
+  addMesh(ctx, geo, ctx.materials.beachSand, 'island-beach', { surface: 'sand', seabed: true });
   return { tris: b.triangles };
 }
 
-function buildLagoon(ctx, params) {
-  const { landRadius, bedOuter, segments, seed, profile } = params;
-  const b = builder();
-  const rng = makeRNG(seed + 55);
-  pushRing(b, {
-    inner: Math.max(landRadius - 1.6, params.spill + 0.4),
-    outer: bedOuter,
-    rings: 28,
-    segments: segments,
-    uvTile: 5.0,
-    y: (r) => {
-      const base = profile.seabedY(r);
-      const shallow = 1 - smoothstep(landRadius + 1, landRadius + 14, r);
-      const bars = Math.sin(r * 2.1 + fbm(r * 0.3, 1.7) * 5.0) * 0.07;
-      // tiny lift where the lagoon tucks under the beach mesh so the two sand shells
-      // never z-fight along the wet-sand seam
-      const lift = (1 - smoothstep(landRadius - 1.2, landRadius + 2.2, r)) * 0.012;
-      return base + bars * shallow + lift;
-    },
-    color: (x, z, r) => {
-      const t = smoothstep(landRadius, landRadius + 26, r);
-      const n = fbm(x * 0.11, z * 0.11);
-      const n2 = fbm(x * 0.34 + 4.1, z * 0.34 - 2.7);
-      // keep the shade below ~0.7: the water shader already adds most of the brightness
-      const sand = [0.52, 0.55, 0.46];
-      const pale = [0.65, 0.64, 0.52];
-      let c = mix3(sand, pale, clamp(n * 1.4 - 0.15, 0, 1));
-      // seagrass / algae mottling, strongest in the shallows
-      const weed = smoothstep(0.52, 0.88, n2) * (1 - t * 0.7);
-      c = mix3(c, [0.26, 0.4, 0.33], weed * 0.6);
-      // turquoise shallows fading into the deep
-      c = mix3(c, [0.3, 0.47, 0.43], smoothstep(0.08, 0.5, t) * 0.6);
-      c = mix3(c, [0.14, 0.22, 0.27], smoothstep(0.4, 1.0, t) * 0.92);
-      return c;
-    },
-  });
-  const geo = b.toGeometry();
-  addMesh(ctx, geo, ctx.materials.beachSand, 'island-lagoon', { surface: 'sand' });
+/**
+ * Lagoon floor colour: a pale coral-sand bed with gentle seagrass / algae mottling.
+ *
+ * The bed is deliberately *bright and neutral*: the transparent ocean shader owns the
+ * turquoise / deep-blue colouring, so any blue-green tint painted here would double up with
+ * the water and turn the whole shallows into a murky dark band. Only past ~3 m does the bed
+ * cool down slightly. Right across the beach/lagoon seam the beach's own sand colour is mixed
+ * back in, which keeps the two shells from showing a colour step where they meet.
+ */
+function lagoonColor(profile, x, z, height, seamDepth) {
+  const depth = Math.max(0, profile.depthAt(x, z));
+  const deepest = Math.max(0.5, profile.level - profile.bedDrop);
+  const t = clamp(depth / deepest, 0, 1);
+  const n = fbm(x * 0.11, z * 0.11);
+  const n2 = fbm(x * 0.34 + 4.1, z * 0.34 - 2.7);
+  // pale coral sand, slightly warmer/darker than dry beach sand so it reads as "under water"
+  let c = mix3([0.78, 0.78, 0.66], [0.9, 0.89, 0.76], clamp(n * 1.4 - 0.15, 0, 1));
+  // seagrass / algae mottling, strongest in the shallows — a gentle value change, not a tint
+  c = mix3(c, [0.56, 0.66, 0.48], smoothstep(0.52, 0.88, n2) * (1 - smoothstep(0.25, 0.75, t)) * 0.42);
+  // the deep lagoon bed (past ~3.5 m) cools down modestly; the water does the real darkening
+  c = mix3(c, [0.6, 0.66, 0.62], smoothstep(3.2, 6.6, depth) * 0.42);
+  // beach wet-sand halo across the seam, fading out over the first 1.6 m of depth
+  const shore = sandColor(profile, x, z, height);
+  c = mix3(c, shore, 1 - smoothstep(seamDepth, seamDepth + 1.6, depth));
+  return c;
+}
 
+function buildLagoon(ctx, params) {
+  const { profile, segments, seed } = params;
+  const level = profile.level;
+  const rng = makeRNG(seed + 55);
+  // Depth of the shared seam: the lagoon bed must look exactly like the beach there.
+  const seamDepth = level - profile.height(profile.waterline + BEACH_SEAM);
+  const b = builder();
+  pushRing(b, {
+    inner: (angle) => seamRadius(profile, angle),
+    outer: profile.bedOuter,
+    rings: 26,
+    segments,
+    uvTile: 5.0,
+    y: (r, x, z, angle) => {
+      const flat = Math.hypot(x, z) - warpRadius(angle); // profile-space radius (warp removed)
+      const bars = Math.sin(flat * 2.1 + fbm(flat * 0.3, 1.7) * 5.0) * 0.04;
+      const shallow = 1 - smoothstep(profile.waterline + 3.0, profile.waterline + 16, flat);
+      // Faded out at the shared seam so both shells still agree exactly on the boundary row.
+      const seamFade = smoothstep(profile.waterline + BEACH_SEAM, profile.waterline + BEACH_SEAM + 2.5, flat);
+      return sandY(profile, x, z) + bars * shallow * seamFade;
+    },
+    color: (x, z, r, angle, height) => lagoonColor(profile, x, z, height, seamDepth),
+  });
+  const lagoonGeo = b.toGeometry();
+  addMesh(ctx, lagoonGeo, ctx.materials.beachSand, 'island-lagoon', { surface: 'sand', seabed: true });
   // ---------------------------------------------------------- lagoon coral scatter
   const coral = builder();
   const coralMat = ctx.materials.sand;
@@ -605,13 +579,15 @@ function buildLagoon(ctx, params) {
     [1.35, 1.6, 1.05],
     [1.9, 1.6, 1.7],
   ];
-  const coralPos = (rMin, rMax) => {
+  // Coral / rock / seagrass bands are authored as *profile* radii around the island and then
+  // warped per bearing, so the reef garden follows the real waterline instead of a circle.
+  const coralPos = (flatMin, flatMax) => {
     const angle = rng() * TAU;
-    const r = rMin + rng() * (rMax - rMin);
-    return [Math.sin(angle) * r, Math.cos(angle) * r, r];
+    const flat = flatMin + rng() * (flatMax - flatMin);
+    const r = warped(flat, angle);
+    return [Math.sin(angle) * r, Math.cos(angle) * r, flat];
   };
-  // how tall a coral head may grow before it pierces the water surface
-  const depthAt = (r) => Math.max(0, -0.38 - profile.seabedY(r));
+  const waterline = profile.waterline;
   const proto = rockGeo(1, { detail: 0, seed: 9, flatten: 0.62, tile: 1.2 });
   const addLump = (x, y, z, sx, sy, sz, ry, col) => {
     const matrix = new THREE.Matrix4().compose(
@@ -622,10 +598,12 @@ function buildLagoon(ctx, params) {
     pushGeo(coral, proto, matrix, col, 1.2);
   };
   for (let i = 0; i < 46; i++) {
-    const [x, z, r] = coralPos(landRadius + 2.4, landRadius + 15);
-    const y = profile.seabedY(r) + 0.03;
+    const [x, z] = coralPos(waterline + 2.4, waterline + 15);
+    const y = sandY(profile, x, z) + 0.03;
+    const depth = Math.max(0, profile.depthAt(x, z));
     const col = coralCols[Math.floor(rng() * coralCols.length) % coralCols.length];
-    const s = Math.min(0.28 + rng() * 0.5, depthAt(r) * 0.62);
+    // how tall a coral head may grow before it pierces the water surface
+    const s = Math.min(0.28 + rng() * 0.5, depth * 0.62);
     if (s < 0.1) continue;
     addLump(x, y, z, s, s * 0.75, s * (0.8 + rng() * 0.5), rng() * TAU, col);
     if (rng() < 0.65) {
@@ -635,10 +613,10 @@ function buildLagoon(ctx, params) {
   }
   // branching coral fingers
   for (let i = 0; i < 30; i++) {
-    const [x, z, r] = coralPos(landRadius + 2.6, landRadius + 12);
-    const y = profile.seabedY(r) + 0.02;
+    const [x, z] = coralPos(waterline + 2.6, waterline + 12);
+    const y = sandY(profile, x, z) + 0.02;
     const col = coralCols[Math.floor(rng() * coralCols.length) % coralCols.length];
-    const room = Math.max(0.05, depthAt(r) * 0.8);
+    const room = Math.max(0.05, Math.max(0, profile.depthAt(x, z)) * 0.8);
     for (let k = 0; k < 3; k++) {
       const h = Math.min(0.18 + rng() * 0.34, room);
       const geo2 = cylGeo(0.02 + rng() * 0.02, 0.05, h, { radial: 4 });
@@ -659,15 +637,15 @@ function buildLagoon(ctx, params) {
   }
   // loose rocks + seagrass blades on the lagoon floor
   for (let i = 0; i < 30; i++) {
-    const [x, z, r] = coralPos(landRadius + 1.2, landRadius + 18);
-    const y = profile.seabedY(r) + 0.01;
+    const [x, z] = coralPos(waterline + 1.2, waterline + 18);
+    const y = sandY(profile, x, z) + 0.01;
     const s = 0.16 + rng() * 0.34;
     addLump(x, y, z, s, s * 0.5, s, rng() * TAU, [1.0, 0.95, 0.8]);
   }
   for (let i = 0; i < 80; i++) {
-    const [x, z, r] = coralPos(landRadius + 1, landRadius + 16);
-    const y = profile.seabedY(r) + 0.01;
-    const len = Math.min(0.3 + rng() * 0.5, depthAt(r) * 0.75);
+    const [x, z] = coralPos(waterline + 1.0, waterline + 16);
+    const y = sandY(profile, x, z) + 0.01;
+    const len = Math.min(0.3 + rng() * 0.5, Math.max(0, profile.depthAt(x, z)) * 0.75);
     if (len < 0.08) continue;
     const wid = 0.05 + rng() * 0.04;
     const col = mix3([0.55, 1.15, 0.6], [0.95, 1.3, 0.7], rng());
@@ -684,56 +662,63 @@ function buildLagoon(ctx, params) {
   }
   proto.dispose();
   const coralGeo = coral.toGeometry();
-  addMesh(ctx, coralGeo, coralMat, 'island-coral');
+  addMesh(ctx, coralGeo, coralMat, 'island-coral', { seabed: true });
   return { tris: b.triangles + coral.triangles };
 }
 
 // ----------------------------------------------------------------------- beach scatter
 
 function buildBeachScatter(ctx, params) {
-  const { landRadius, seed, profile } = params;
+  const { beachInner, seed, profile } = params;
   const b = builder();
   const rng = makeRNG(seed + 63);
-  const placement = (rMin, rMax) => {
+  const waterline = profile.waterline;
+  // Every scatter band is a *profile* radius band: it is warped per bearing, so shells, pebbles
+  // and wrack follow the real sand/water boundary instead of a perfect circle.
+  const placement = (flatMin, flatMax) => {
     const angle = rng() * TAU;
-    const r = rMin + rng() * (rMax - rMin);
-    return [Math.sin(angle) * r, Math.cos(angle) * r, r];
+    const flat = flatMin + rng() * (flatMax - flatMin);
+    const r = warped(flat, angle);
+    return [Math.sin(angle) * r, Math.cos(angle) * r, flat];
   };
   // shells (bright, cream/pink) + pebbles (grey/brown) in one pale-stone mesh
   const shellCols = [[1.0, 0.96, 0.86], [0.98, 0.9, 0.84], [0.92, 0.94, 0.9], [1.0, 0.92, 0.78]];
   const pebbleCols = [[0.6, 0.58, 0.52], [0.72, 0.66, 0.56], [0.5, 0.5, 0.47], [0.66, 0.6, 0.5]];
   const proto = rockGeo(1, { detail: 0, seed: 3, flatten: 0.42, tile: 0.8 });
   const tmpMatrix = new THREE.Matrix4();
-  const push = (proto2, x, y, z, s, ry, col, sy = 0.6) => {
+  const push = (x, y, z, s, ry, col, sy = 0.6) => {
     tmpMatrix.compose(
       new THREE.Vector3(x, y, z),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)),
       new THREE.Vector3(s, s * sy, s * (0.8 + rng() * 0.4)),
     );
-    pushGeo(b, proto2, tmpMatrix, col, 1.2);
+    pushGeo(b, proto, tmpMatrix, col, 1.2);
   };
   for (let i = 0; i < 75; i++) {
-    const [x, z, r] = placement(params.beachInner + 1.5, profile.spill - 0.4);
-    push(proto, x, profile.beachY(r) + 0.01, z, 0.03 + rng() * 0.045, rng() * TAU, shellCols[Math.floor(rng() * 4) % 4], 0.45);
+    const [x, z] = placement(beachInner + 1.5, waterline - 1.0);
+    push(x, sandY(profile, x, z) + 0.01, z, 0.03 + rng() * 0.045, rng() * TAU, shellCols[Math.floor(rng() * 4) % 4], 0.45);
   }
   for (let i = 0; i < 65; i++) {
-    const [x, z, r] = placement(params.beachInner + 1.2, profile.spill - 0.2);
-    push(proto, x, profile.beachY(r) + 0.009, z, 0.05 + rng() * 0.09, rng() * TAU, pebbleCols[Math.floor(rng() * 4) % 4], 0.55);
+    const [x, z] = placement(beachInner + 1.2, waterline - 0.9);
+    push(x, sandY(profile, x, z) + 0.009, z, 0.05 + rng() * 0.09, rng() * TAU, pebbleCols[Math.floor(rng() * 4) % 4], 0.55);
   }
   // wet-line shells, right where the sand turns dark
   for (let i = 0; i < 28; i++) {
-    const [x, z, r] = placement(profile.spill - 0.7, landRadius - 0.6);
-    push(proto, x, profile.beachY(r) + 0.01, z, 0.035 + rng() * 0.05, rng() * TAU, shellCols[Math.floor(rng() * 4) % 4], 0.4);
+    const [x, z] = placement(waterline - 1.7, waterline - 0.1);
+    push(x, sandY(profile, x, z) + 0.01, z, 0.035 + rng() * 0.05, rng() * TAU, shellCols[Math.floor(rng() * 4) % 4], 0.4);
   }
+  // Swash marks are intentionally *not* separate geometry: a raised strip reads as a dark seam
+  // at grazing angles, and the ocean pass already draws the live swash / wet-sand band from the
+  // same profile (`island-shore.js`). The beach keeps its ripple storytelling in vertex colour.
   proto.dispose();
-  addMesh(ctx, b.toGeometry(), ctx.materials.ruinStone, 'island-scatter');
+  addMesh(ctx, b.toGeometry(), ctx.materials.ruinStone, 'island-scatter', { seabed: true });
 
   // dark seaweed wrack + damp-sand sheen along the tide line (one mud-material mesh)
   const w = builder();
   const wrackCols = [[0.78, 0.72, 0.5], [0.86, 0.78, 0.52], [0.7, 0.68, 0.5], [0.92, 0.8, 0.56]];
   for (let i = 0; i < 70; i++) {
-    const [x, z, r] = placement(profile.spill - 1.4, landRadius - 0.2);
-    const y = profile.beachY(r) + 0.008;
+    const [x, z] = placement(waterline - 2.4, waterline - 0.2);
+    const y = sandY(profile, x, z) + 0.008;
     const a = rng() * TAU;
     const len = 0.16 + rng() * 0.42;
     const wid = 0.015 + rng() * 0.03;
@@ -748,288 +733,8 @@ function buildBeachScatter(ctx, params) {
     const v3 = w.vert(x - perpX * wid * 0.5 + dirX * len, y + 0.002, z - perpZ * wid * 0.5 + dirZ * len, 0, 1, col);
     w.quad(v0, v1, v2, v3);
   }
-  addMesh(ctx, w.toGeometry(), ctx.materials.mud, 'island-tideline', { shadows: true });
+  addMesh(ctx, w.toGeometry(), ctx.materials.mud, 'island-tideline', { shadows: true, seabed: true });
   return { tris: b.triangles + w.triangles };
-}
-
-// ------------------------------------------------------------------------ reef ridge
-
-function buildReefRidge(ctx, params) {
-  const { terrain, seed } = params;
-  ensureBatches(ctx);
-  const batcher = ctx.batcher;
-  const ring = boundarySegments(terrain.boundary);
-  const radius = ring.ring.radius;
-  const half = ring.segments.length ? ring.segments[0].size / 2 : 1.72;
-  const gapAngle = num(terrain?.boundary?.gap?.angle, 0.48);
-  const gapWidth = num(terrain?.boundary?.gap?.width, 6);
-  const gapHalf = gapWidth / 2 / Math.max(1, radius);
-  const step = TAU / Math.max(1, ring.segments.length);
-  const rng = makeRNG(seed + 91);
-  const angleDist = (a, b) => Math.abs(((a - b + Math.PI) % TAU) - Math.PI);
-
-  // rock prototypes: rounded reef block / angular shard / low slab / hero (gate posts)
-  const rocks = [
-    lumpGeo({ detail: 1, seed: 3, flatten: 0.9, amp: 0.3, facet: 0.5 }),
-    lumpGeo({ detail: 1, seed: 8, flatten: 0.7, amp: 0.42, facet: 0.85 }),
-    lumpGeo({ detail: 1, seed: 15, flatten: 0.5, amp: 0.34, facet: 0.68 }),
-    lumpGeo({ detail: 2, seed: 19, flatten: 0.78, amp: 0.36, facet: 0.6 }),
-  ];
-  const flat = [0.9, 0.7, 0.5, 0.78];
-  const chipGeo = lumpGeo({ detail: 0, seed: 21, flatten: 0.6, amp: 0.34, facet: 0.8 });
-  const mossGeo = lumpGeo({ detail: 0, seed: 27, flatten: 0.4, amp: 0.3, facet: 0.35 });
-  const wetGeo = lumpGeo({ detail: 0, seed: 33, flatten: 0.16, amp: 0.26, facet: 0.5 });
-  // 20-tri low slab: the half-buried reef platform of the sand saddles
-  const slabGeo = lumpGeo({ detail: 0, seed: 41, flatten: 0.5, amp: 0.38, facet: 0.55 });
-  const SLAB_FLAT = 0.5;
-
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const e = new THREE.Euler();
-  const pos = new THREE.Vector3();
-  const scl = new THREE.Vector3();
-  let ridgeTris = 0;
-  const triOf = (geo) => (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
-  const add = (key, geo, x, y, z, sx, sy, sz, ry, rx = 0, rz = 0) => {
-    pos.set(x, y, z);
-    e.set(rx, ry, rz, 'YXZ');
-    q.setFromEuler(e);
-    scl.set(sx, sy, sz);
-    m.compose(pos, q, scl);
-    batcher.add(key, geo, m);
-    ridgeTris += triOf(geo);
-  };
-  // shell extremes: 1.29× horizontal reach (icosahedron jitter); the blunt-crown squash
-  // below maps everything above y=0.42 to a max of 0.82 * 1.29 * flatten
-  const reach = (sx, sz) => 1.29 * Math.max(sx, sz);
-  const topExtent = (flatten) => {
-    const raw = 1.29 * flatten;
-    const blunt = raw > 0.42 ? 0.42 + (raw - 0.42) * 0.4 : raw;
-    return Math.min(blunt, 0.82);
-  };
-
-  let tallCount = 0;
-  let rockCount = 0;
-
-  // ---------------------------------------------------- sand spine under the rocks
-  // A low sand ridge (beach-sand material) follows the rock belt so the boulders grow out
-  // of the beach instead of standing on a flat plane. It stays inside the collider
-  // footprints radially (|d| <= 1.2 m) so it never turns into a visual-only blocker.
-  const skirt = builder();
-  const skirtRows = [-1.2, -0.62, -0.05, 0.55, 1.2];
-  const skirtY = [0.004, 0.1, 0.17, 0.085, 0.004];
-  const sandDry = [0.9, 0.84, 0.68];
-  const sandDamp = [0.6, 0.55, 0.44];
-  for (const segment of ring.segments) {
-    if (segment.skipped) continue;
-    const a0 = segment.angle - step * 0.5;
-    const a1 = segment.angle + step * 0.5;
-    const bump = 0.65 + noise2(Math.cos(segment.angle) * 5.1 + 2.4, Math.sin(segment.angle) * 5.1 - 3.3) * 0.7;
-    const rows = [];
-    for (let ri = 0; ri < skirtRows.length; ri++) {
-      const row = [];
-      for (const aa of [a0, a1]) {
-        const rr = radius + skirtRows[ri];
-        const x = Math.sin(aa) * rr;
-        const z = Math.cos(aa) * rr;
-        const y = skirtY[ri] * bump;
-        const n = noise2(x * 0.55 + 3.1, z * 0.55 - 1.7);
-        const edge = Math.abs(skirtRows[ri]) / 1.2;
-        let c = mix3(sandDry, sandDamp, 0.22 + n * 0.3 + edge * 0.25);
-        const shade = 0.82 + n * 0.3;
-        row.push(skirt.vert(x, y, z, x / 3.2, z / 3.2, [c[0] * shade, c[1] * shade, c[2] * shade]));
-      }
-      rows.push(row);
-    }
-    for (let ri = 0; ri < skirtRows.length - 1; ri++) {
-      const a = rows[ri][0];
-      const b1 = rows[ri][1];
-      const c = rows[ri + 1][0];
-      const d = rows[ri + 1][1];
-      skirt.tri(a, c, b1);
-      skirt.tri(b1, c, d);
-    }
-  }
-  const skirtGeo = skirt.toGeometry();
-  addMesh(ctx, skirtGeo, ctx.materials.beachSand, 'island-reef-skirt');
-  ridgeTris += skirt.triangles;
-
-  // --------------------------------------------------------------- reef boulders
-  for (const segment of ring.segments) {
-    if (segment.skipped) continue;
-    const angle = segment.angle;
-    const cx = Math.sin(angle) * radius;
-    const cz = Math.cos(angle) * radius;
-    const n1 = noise2(Math.cos(angle) * 3.2 + 1.7, Math.sin(angle) * 3.2 - 4.1);
-    const n2 = noise2(Math.cos(angle) * 7.9 - 5.3, Math.sin(angle) * 7.9 + 2.4);
-    const n3 = noise2(Math.cos(angle) * 15.1 + 8.1, Math.sin(angle) * 15.1 - 6.6);
-    const distGap = angleDist(angle, gapAngle);
-    const gapNeighbour = distGap < gapHalf + step * 1.9;
-
-    /** Place one boulder. `tangent`/`radial` are metres in the ring frame. */
-    const place = (gi, tangent, radial, s, h, sink, key, slab = false) => {
-      const sz = s * (0.8 + rng() * 0.4);
-      const limit = Math.max(0, half - 0.05 - reach(s, sz));
-      const dx = Math.sin(angle) * radial + Math.cos(angle) * tangent;
-      const dz = Math.cos(angle) * radial - Math.sin(angle) * tangent;
-      const ox = clamp(dx, -limit, limit);
-      const oz = clamp(dz, -limit, limit);
-      const tilt = (rng() - 0.5) * 0.12;
-      const geo = slab ? slabGeo : rocks[gi];
-      const fl = slab ? SLAB_FLAT : flat[gi];
-      add(key, geo, cx + ox, -sink, cz + oz,
-        s, (h + sink) / topExtent(fl), sz, rng() * TAU, tilt, tilt * 0.6);
-      rockCount++;
-      if (h > 1.25) tallCount++;
-      // moss cushion on the top of the taller blocks (<= 20 % of rocks)
-      if (h > 1.45 && rng() < 0.2) {
-        const ms = s * (0.4 + rng() * 0.22);
-        add('mossStone', mossGeo, cx + ox + (rng() - 0.5) * 0.16, -sink + h - 0.16,
-          cz + oz + (rng() - 0.5) * 0.16, ms, 0.22 / topExtent(0.4), ms * (0.85 + rng() * 0.3), rng() * TAU);
-      }
-      return { x: cx + ox, z: cz + oz, s };
-    };
-
-    // the cluster centre drifts along the ring so the belt never reads as a regular row
-    const shift = (rng() - 0.5) * 0.9;
-    const saddle = n2 < 0.34;
-    const lowTop = 0.45 + rng() * 0.4; // 0.45-0.85 m reef shelf in a sand saddle
-
-    // 1) seaward block: wide + low, keeps the outer collider face visually covered
-    const sea = place(rng() < 0.3 ? 2 : 0, shift + (rng() - 0.5) * 0.5, 0.38 + n1 * 0.08,
-      saddle ? 1.0 + rng() * 0.22 : 0.92 + rng() * 0.24,
-      saddle ? lowTop : 1.05 + rng() * 0.6, 0.3 + rng() * 0.22,
-      rng() < 0.24 ? 'mossStone' : 'shoreRock', saddle);
-    // wet collar where the seaward block meets the sand
-    if (rng() < 0.6) {
-      add('mud', wetGeo, sea.x + (rng() - 0.5) * 0.2, -0.045, sea.z + (rng() - 0.5) * 0.2,
-        sea.s * (1.35 + rng() * 0.4), 0.9, sea.s * (1.2 + rng() * 0.4), rng() * TAU);
-    }
-
-    // 2) inward block: wide shelf, keeps the inner collider face visually covered
-    place(rng() < 0.3 ? 2 : 0, shift - (rng() - 0.5) * 0.7, -(0.36 + n2 * 0.08),
-      saddle ? 0.92 + rng() * 0.24 : 0.86 + rng() * 0.26,
-      saddle ? 0.4 + rng() * 0.4 : 0.95 + rng() * 0.5, 0.26 + rng() * 0.2,
-      rng() < 0.2 ? 'stoneDark' : 'shoreRock', saddle);
-
-    // 3) tall shard(s): every segment keeps at least one collider-height rock so the
-    //    collision box always has a visible side face (map-audit air walls)
-    if (saddle) {
-      place(1, shift + (rng() - 0.5) * 0.9, (rng() - 0.5) * 0.5,
-        0.5 + rng() * 0.18, 1.2 + rng() * 0.35, 0.28 + rng() * 0.2, 'shoreRock');
-    } else if (n2 > 0.3) {
-      place(1, shift + (rng() - 0.5) * 1.0, (rng() - 0.5) * 0.5,
-        0.52 + rng() * 0.24, 1.3 + rng() * 0.62, 0.26 + rng() * 0.3, 'shoreRock');
-    }
-    if (!saddle && n3 > 0.84) {
-      place(1, shift + (rng() - 0.5) * 1.2, (rng() - 0.5) * 0.7,
-        0.42 + rng() * 0.2, 1.05 + rng() * 0.55, 0.24 + rng() * 0.2,
-        rng() < 0.14 ? 'stoneDark' : 'shoreRock');
-    }
-
-    // 4) chips / broken coral rubble spilling from the cluster
-    if (rng() < 0.32) {
-      const cs = 0.15 + rng() * 0.22;
-      const limit = Math.max(0, half - 0.05 - reach(cs, cs));
-      const ang = rng() * TAU;
-      const rr = rng() * limit;
-      add('shoreRock', chipGeo, cx + Math.cos(ang) * rr, -0.03, cz + Math.sin(ang) * rr,
-        cs, cs * 0.6, cs * (0.8 + rng() * 0.4), rng() * TAU);
-    }
-
-    // 5) gate posts flanking the jetty gap (biggest rocks, keep the passage obvious)
-    if (gapNeighbour) {
-      const side = Math.sin(gapAngle - angle) >= 0 ? 1 : -1;
-      const s = 0.8;
-      const h = 1.9 + rng() * 0.25;
-      const tangent = side * Math.max(0.2, half - 0.06 - reach(s, s));
-      const dx = Math.cos(angle) * tangent;
-      const dz = -Math.sin(angle) * tangent;
-      add('shoreRock', rocks[3], cx + dx, -0.3, cz + dz,
-        s, (h + 0.3) / topExtent(0.78), s * 0.9, rng() * TAU);
-      rockCount++;
-      tallCount++;
-    }
-  }
-  ctx.terrainRidgeTris = Math.round(ridgeTris);
-
-  // ------------------------------------------------------------- ridge foliage
-  // Ferns and low bushes along the rock belt (visual only: the frond/leaf batches are
-  // collide:false, real collision is the map data).
-  const frond = frondGeometry();
-  const leaf = unitQuad();
-  const angles = [];
-  for (let i = 0; i < 16; i++) angles.push((i / 16) * TAU + rng() * 0.3);
-  let foliage = 0;
-  for (const a of angles) {
-    if (angleDist(a, gapAngle) < gapHalf + 0.05) continue;
-    // Pull the fern clusters 1 m inside the rock belt and keep them low: sitting on the
-    // beach/rock base instead of hovering over the water when a segment is a low saddle.
-    const r = radius - 1.0 + (rng() - 0.5) * 0.8;
-    const cx = Math.sin(a) * r;
-    const cz = Math.cos(a) * r;
-    const onRock = rng() < 0.55;
-    const baseY = onRock ? 0.42 + rng() * 0.3 : 0.1 + rng() * 0.14;
-    const scale = 0.8 + rng() * 0.6;
-    for (let f = 0; f < 6; f++) {
-      const yaw = (f / 6) * TAU + rng() * 0.5;
-      const pitch = -0.5 + rng() * 1.2;
-      const rollout = 0.35 + rng() * 0.55;
-      m.compose(
-        pos.set(cx + (rng() - 0.5) * 0.25, baseY, cz + (rng() - 0.5) * 0.25),
-        q.setFromEuler(e.set(pitch, yaw, rollout, 'YXZ')),
-        scl.set(scale, scale, scale),
-      );
-      batcher.add('frondLush', frond, m.clone());
-      foliage++;
-    }
-    if (rng() < 0.7) {
-      for (let f = 0; f < 2; f++) {
-        m.compose(
-          pos.set(cx + (rng() - 0.5) * 0.5, baseY + 0.2 + rng() * 0.2, cz + (rng() - 0.5) * 0.5),
-          q.setFromEuler(e.set(-0.7 + rng() * 0.5, rng() * TAU, 0, 'YXZ')),
-          scl.set(0.5 + rng() * 0.3, 0.5 + rng() * 0.3, 0.5),
-        );
-        batcher.add(rng() < 0.5 ? 'broadleaf' : 'broadleafDark', leaf, m.clone());
-      }
-    }
-  }
-  const foliageTris = 16 * (6 * 8 + 2 * 2);
-  for (const geo of [...rocks, chipGeo, mossGeo, wetGeo, frond, leaf]) geo.dispose();
-  return { tallCount, rockCount, foliage, tris: Math.round(ridgeTris + foliageTris) };
-}
-
-/** Simple curved frond strip (8 triangles) for the reef foliage. */
-function frondGeometry() {
-  const b = builder();
-  const seg = 4;
-  const len = 1.0;
-  const wid = 0.1;
-  const rows = [];
-  for (let i = 0; i <= seg; i++) {
-    const t = i / seg;
-    const y = Math.pow(t, 1.7) * 0.42 - t * 0.05;
-    const w = wid * (1 - t * 0.75) * (0.35 + Math.sin(t * Math.PI) * 0.9);
-    const z = t * len;
-    const c = [1, 1, 1];
-    rows.push([b.vert(-w, y, z, 0, t, c), b.vert(w, y, z, 1, t, c)]);
-  }
-  for (let i = 0; i < seg; i++) {
-    b.quad(rows[i][0], rows[i][1], rows[i + 1][1], rows[i + 1][0]);
-  }
-  return b.toGeometry();
-}
-
-/** Unit leaf card (2 triangles) for the broadleaf batches. */
-function unitQuad() {
-  const b = builder();
-  const c = [1, 1, 1];
-  const a = b.vert(-0.5, 0, -0.5, 0, 0, c);
-  const bb = b.vert(0.5, 0, -0.5, 1, 0, c);
-  const cc = b.vert(0.5, 0, 0.5, 1, 1, c);
-  const d = b.vert(-0.5, 0, 0.5, 0, 1, c);
-  b.quad(a, bb, cc, d);
-  return b.toGeometry();
 }
 
 // ------------------------------------------------------------------------- assembly
@@ -1042,21 +747,17 @@ function unitQuad() {
 export function buildIslandTerrain(ctx) {
   const terrain = ctx.data?.terrain ?? {};
   const island = terrain.island ?? {};
-  const sea = terrain.sea ?? {};
   const grassRadius = num(island.grassRadius, 44);
   const beachInner = num(island.beachInner, 41);
-  const landRadius = num(island.landRadius, 57);
   const segments = Math.max(96, Math.round(num(island.segments, 168)));
   const seed = num(island.seed, 7712);
-  const bedOuter = Math.max(landRadius + 18, num(sea.bedOuter, 96));
-  const bedDrop = num(sea.bedDrop, -7.5);
-  const play = playRadius(terrain);
 
-  const profile = makeShoreProfile({ landRadius, bedOuter, bedDrop, play });
+  // One shared shoreline profile drives every sand shell in this file (see island-shore.js).
+  const profile = shoreProfile(terrain);
   const paths = collectPaths(ctx);
   const trail = makeTrailMask(paths);
   const spots = collectShadeSpots(ctx);
-  // irregular grass rim: big lobes + small crenellation; the spawn beach (r~?6) must stay sand
+  // irregular grass rim: big lobes + small crenellation (the spawn apron must stay sand)
   const grassEdge = (angle) => {
     const lobe = (fbm(Math.cos(angle) * 1.8 + seed * 0.013, Math.sin(angle) * 1.8 - 2.3) - 0.5) * 4.8;
     const crenel = (fbm(Math.cos(angle) * 9.2 - 4.4, Math.sin(angle) * 9.2 + 6.1) - 0.5) * 2.6;
@@ -1064,8 +765,9 @@ export function buildIslandTerrain(ctx) {
   };
 
   const params = {
-    terrain, profile, grassRadius, beachInner, landRadius, bedOuter, bedDrop,
-    segments, seed, paths, trail, spots, grassEdge, play, spill: profile.spill,
+    terrain, profile, grassRadius, beachInner,
+    landRadius: profile.landRadius, bedOuter: profile.bedOuter, bedDrop: profile.bedDrop,
+    segments, seed, paths, trail, spots, grassEdge,
   };
 
   const ground = buildGround(ctx, params);
@@ -1073,17 +775,24 @@ export function buildIslandTerrain(ctx) {
   const beach = buildBeach(ctx, params);
   const scatter = buildBeachScatter(ctx, params);
   const lagoon = buildLagoon(ctx, params);
-  const ridge = buildReefRidge(ctx, params);
-  const total = ground.tris + litter.tris + beach.tris + scatter.tris + lagoon.tris + ridge.tris;
+  const total = ground.tris + litter.tris + beach.tris + scatter.tris + lagoon.tris;
   ctx.terrainTris = {
     ground: ground.tris,
     litter: litter.tris,
     beach: beach.tris,
     scatter: scatter.tris,
     lagoon: lagoon.tris,
-    ridge: ridge.tris,
     total,
   };
+
+  // Shared shoreline contract for the rest of the world (see src/world/index.js):
+  //  - groundHeight: walkable sand height at any (x, z) — player feet + robot ground follow;
+  //  - shoreGuard:   the exact radial wading guard (no reef-ring colliders needed);
+  //  - shoreProfile: the full profile, consumed by the ocean pass / QA tooling.
+  ctx.shoreProfile = profile;
+  ctx.groundHeight = (x, z) => profile.Y(x, z);
+  ctx.shoreGuard = { guardRadiusAt: profile.guardRadiusAt };
+  ctx.shore = ctx.shoreGuard; // legacy alias used by the QA probe
 
   return { ground: ground.ground };
 }

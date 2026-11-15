@@ -1,0 +1,241 @@
+/**
+ * SANDSTRIKE // DEV TOOLS — global shell styles.
+ *
+ * Shared tokens + the app frame (header / tabs / viewer panes). Each viewer owns
+ * its own component stylesheet (`ModelViewer.css`, `MapViewer.css`) so the two
+ * workstreams never edit the same file.
+ */
+:root {
+  color-scheme: dark;
+  --bg: #080a0d;
+  --panel: #0e1114;
+  --panel-2: #12161b;
+  --line: #2c2620;
+  --line-soft: #1d2229;
+  --ink: #e9dcc4;
+  --dim: #9a8f7c;
+  --faint: #6d6558;
+  --hot: #ff8a3c;
+  --sand: #c9a97a;
+  --cyan: #73e6ff;
+  --danger: #ff5a45;
+  --mono: "Cascadia Mono", "Consolas", "SFMono-Regular", "Segoe UI", monospace;
+  font: 12px/1.45 var(--mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ------------------------------------------------------------------------ */
+/* App frame                                                                 */
+/* ------------------------------------------------------------------------ */
+.dev-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.dev-head {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex: 0 0 54px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #14120f, #0b0d10);
+}
+
+.dev-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.dev-brand-main {
+  color: #f3e5ca;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+.dev-brand-split {
+  color: var(--hot);
+  font-weight: 800;
+}
+
+.dev-brand-sub {
+  color: var(--sand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+}
+
+.dev-badge {
+  align-self: center;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--hot);
+  color: #1a120c;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.dev-tabs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dev-tab {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  letter-spacing: 0.06em;
+}
+
+.dev-tab:hover {
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.dev-tab.on {
+  color: var(--ink);
+  border-color: var(--hot);
+  background: #1d1710;
+}
+
+.dev-tab-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dev-tab-cn {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.dev-tab.on .dev-tab-cn {
+  color: var(--sand);
+}
+
+.dev-head-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.dev-quality {
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.dev-link {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--sand);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+}
+
+.dev-link:hover {
+  border-color: var(--hot);
+  color: var(--hot);
+}
+
+.dev-main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Hidden panes keep their layout size so the WebGL canvas never fights a
+ * display:none -> size-0 -> resize cycle when switching tabs. */
+.viewer-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.viewer-pane[data-active] {
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+.viewer-pane:not([data-active]) {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Automation mode: one full-bleed viewer, no dev chrome                     */
+/* ------------------------------------------------------------------------ */
+.automation-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #06080a;
+}
+
+.automation-root > * {
+  position: absolute;
+  inset: 0;
+}
+
+.automation-root .viewer-pane,
+.automation-root [hidden] {
+  display: none !important;
+}
+
+/* Shared scrollbars for the dev panels. */
+.dev-app ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dev-app ::-webkit-scrollbar-thumb {
+  background: #241f19;
+}
+
+.dev-app ::-webkit-scrollbar-track {
+  background: transparent;
+}

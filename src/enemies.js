@@ -29,6 +29,7 @@
 import * as THREE from 'three';
 import { emit } from './bus.js';
 import { clamp, lerp, damp, dampAngle, angleDelta, rand, randInt, choice, smoothstep } from './utils.js';
+import { clampToGuard } from './world/island-shore.js';
 import { CONFIG } from './config/index.js';
 import { DEFAULT_STAGE_ID } from './config/stages.js';
 import { DEFAULT_DIFFICULTY_ID, getDifficulty } from './config/difficulty.js';
@@ -980,6 +981,13 @@ class Robot {
 
     this._separateFromCrowd();
     mgr.resolveWorldCollision(this);
+    // No swimming robots and no floating chassis: clamp to the same wading guard the player
+    // uses, then sit the body on the (island) sand instead of the old flat y = 0 plane.
+    // Spawn-drop / death-fall own `root.position.y` while those animations run — update()
+    // returns before locomotion in those states, so they are untouched here.
+    if (mgr._shoreGuard) clampToGuard(mgr._shoreGuard, pos);
+    const groundY = mgr.groundHeightAt(pos.x, pos.z);
+    pos.y = damp(pos.y, groundY, 12, dt);
 
     const moved = dist2D(this.lastX, this.lastZ, pos.x, pos.z);
     const wanted = Math.hypot(this.vel.x, this.vel.z);
@@ -1553,6 +1561,13 @@ class EnemyManager {
   } = {}) {
     this.scene = scene || null;
     this.world = world || {};
+    // Tropical-island ground contract (src/world/island-terrain.js): walkable sand height and
+    // the exact radial wading guard. Both are absent on the flat outpost / range maps, where
+    // robots keep the old y = 0 plane behaviour bit-for-bit.
+    this._groundHeight = typeof this.world.groundHeight === 'function' ? this.world.groundHeight : null;
+    this._shoreGuard = this.world.shoreProfile && typeof this.world.shoreProfile.guardRadiusAt === 'function'
+      ? this.world.shoreProfile
+      : null;
     this.effects = effects || null;
     this.audio = audio || null;
     this.getPlayer = typeof getPlayer === 'function' ? getPlayer : () => null;
@@ -2274,6 +2289,11 @@ class EnemyManager {
       }
     }
     return out;
+  }
+
+  /** Walkable ground height at (x, z): the island sand profile, or 0 on flat maps. */
+  groundHeightAt(x, z) {
+    return this._groundHeight ? this._groundHeight(x, z) : 0;
   }
 
   resolveWorldCollision(robot) {

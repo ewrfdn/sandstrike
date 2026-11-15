@@ -1,0 +1,586 @@
+/**
+ * SANDSTRIKE // DEV MAP VIEWER — component styles.
+ *
+ * Self-contained `.mapv-*` scope so this file never collides with ModelViewer.css
+ * or the app shell. Colours/fonts mirror the dev-tools palette (app.css tokens)
+ * but are repeated as literals here so the map panel can be embedded standalone.
+ */
+
+.mapv,
+.mapv *,
+.mapv-canvas {
+  box-sizing: border-box;
+}
+
+.mapv {
+  --mapv-bg: #080a0d;
+  --mapv-panel: #0e1114;
+  --mapv-panel-2: #12161b;
+  --mapv-line: #2c2620;
+  --mapv-line-soft: #1d2229;
+  --mapv-ink: #e9dcc4;
+  --mapv-dim: #9a8f7c;
+  --mapv-faint: #6d6558;
+  --mapv-hot: #ff8a3c;
+  --mapv-sand: #c9a97a;
+  --mapv-danger: #ff5a45;
+
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--mapv-bg);
+  color: var(--mapv-ink);
+  font: 12px/1.45 "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Sidebar                                                                   */
+/* ------------------------------------------------------------------------ */
+.mapv-side {
+  display: flex;
+  flex: 0 0 252px;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 14px 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--mapv-line);
+  background: linear-gradient(180deg, #0e1114, #0b0d10);
+}
+
+.mapv-side-head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mapv-line);
+}
+
+.mapv-side-title {
+  color: var(--mapv-ink);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+.mapv-side-sub {
+  margin-top: 3px;
+  color: var(--mapv-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+}
+
+.mapv-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mapv-section-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--mapv-faint);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.mapv-section-label > span {
+  color: var(--mapv-sand);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Map list                                                                  */
+/* ------------------------------------------------------------------------ */
+.mapv-maps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mapv-map {
+  position: relative;
+  display: grid;
+  grid-template-areas:
+    "name badge"
+    "id sub";
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--mapv-line-soft);
+  border-radius: 3px;
+  background: var(--mapv-panel);
+  color: var(--mapv-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.mapv-map:hover:not(:disabled) {
+  border-color: #3a332b;
+  background: var(--mapv-panel-2);
+}
+
+.mapv-map.on {
+  border-color: var(--mapv-hot);
+  background: #1d1710;
+}
+
+.mapv-map:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.mapv-map:focus-visible {
+  outline: 1px solid var(--mapv-hot);
+  outline-offset: 2px;
+}
+
+.mapv-map-badge {
+  grid-area: badge;
+  align-self: start;
+  padding: 1px 4px;
+  border: 1px solid var(--mapv-line);
+  border-radius: 3px;
+  color: var(--mapv-dim);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+}
+
+.mapv-map.on .mapv-map-badge {
+  border-color: #5a3a20;
+  color: var(--mapv-hot);
+}
+
+.mapv-map-name {
+  grid-area: name;
+  overflow: hidden;
+  color: var(--mapv-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapv-map.on .mapv-map-name {
+  color: #ffd9b0;
+}
+
+.mapv-map-id {
+  grid-area: id;
+  overflow: hidden;
+  color: var(--mapv-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapv-map-sub {
+  grid-area: sub;
+  overflow: hidden;
+  color: var(--mapv-dim);
+  font-size: 9.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Speed slider + buttons                                                    */
+/* ------------------------------------------------------------------------ */
+.mapv-slider {
+  width: 100%;
+  height: 4px;
+  margin: 6px 0 0;
+  border-radius: 2px;
+  background: #241f19;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mapv-slider::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #1a120c;
+  border-radius: 50%;
+  background: var(--mapv-hot);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mapv-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #1a120c;
+  border-radius: 50%;
+  background: var(--mapv-hot);
+  cursor: pointer;
+}
+
+.mapv-slider:focus-visible {
+  outline: 1px solid var(--mapv-hot);
+  outline-offset: 4px;
+}
+
+.mapv-slider-scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--mapv-faint);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+}
+
+.mapv-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--mapv-line);
+  border-radius: 3px;
+  background: var(--mapv-panel-2);
+  color: var(--mapv-sand);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.mapv-btn:hover {
+  border-color: var(--mapv-hot);
+  color: var(--mapv-hot);
+}
+
+.mapv-btn:active {
+  background: #1d1710;
+}
+
+.mapv kbd {
+  min-width: 34px;
+  padding: 1px 4px;
+  border: 1px solid var(--mapv-line);
+  border-bottom-color: #3a332b;
+  border-radius: 3px;
+  background: var(--mapv-panel-2);
+  color: var(--mapv-sand);
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Controls hint                                                             */
+/* ------------------------------------------------------------------------ */
+.mapv-hints ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapv-hints li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--mapv-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+
+.mapv-side-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed var(--mapv-line-soft);
+  color: var(--mapv-faint);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Canvas + overlays                                                         */
+/* ------------------------------------------------------------------------ */
+.mapv-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--mapv-bg);
+}
+
+.mapv-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #080a0d;
+  outline: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.mapv-stage > .mapv-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Automation: the canvas is the only node (App gives it the whole viewport). */
+.mapv-canvas--auto {
+  position: absolute;
+  inset: 0;
+}
+
+.mapv-canvas:active {
+  cursor: grabbing;
+}
+
+.mapv-hud-top {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--mapv-hot);
+  background: rgba(8, 10, 13, 0.68);
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.mapv-hud-name {
+  color: #f3e5ca;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.mapv-hud-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 3px;
+  color: var(--mapv-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+}
+
+.mapv-hud-style {
+  color: var(--mapv-sand);
+}
+
+.mapv-hud-id {
+  color: var(--mapv-faint);
+}
+
+/* Small fixed crosshair so the look direction is readable on screenshots. */
+.mapv-cross {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+.mapv-cross::before,
+.mapv-cross::after {
+  content: "";
+  position: absolute;
+  background: var(--mapv-ink);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.85);
+}
+
+.mapv-cross::before {
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+.mapv-cross::after {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Bottom status bar                                                         */
+/* ------------------------------------------------------------------------ */
+.mapv-status {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--mapv-line);
+  background: linear-gradient(180deg, rgba(8, 10, 13, 0.55), rgba(8, 10, 13, 0.9));
+  pointer-events: none;
+  backdrop-filter: blur(5px);
+}
+
+.mapv-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--mapv-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.mapv-stat b {
+  color: var(--mapv-faint);
+  font-weight: 600;
+}
+
+.mapv-stat span {
+  color: var(--mapv-ink);
+}
+
+.mapv-stat.is-warn span {
+  color: var(--mapv-hot);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Loading overlay                                                           */
+/* ------------------------------------------------------------------------ */
+.mapv-progress {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 10, 13, 0.76);
+  backdrop-filter: blur(2px);
+}
+
+.mapv-progress-card {
+  width: min(340px, 72%);
+  padding: 16px 18px;
+  border: 1px solid var(--mapv-line);
+  background: var(--mapv-panel);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+.mapv-progress-label {
+  color: var(--mapv-sand);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+.mapv-progress-bar {
+  height: 4px;
+  margin: 10px 0 6px;
+  overflow: hidden;
+  background: var(--mapv-line-soft);
+}
+
+.mapv-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mapv-sand), var(--mapv-hot));
+  transition: width 0.12s linear;
+}
+
+.mapv-progress-pct {
+  color: var(--mapv-hot);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-align: right;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Error banner                                                              */
+/* ------------------------------------------------------------------------ */
+.mapv-error {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+  max-width: min(420px, 62%);
+  padding: 10px 26px 10px 12px;
+  border: 1px solid var(--mapv-danger);
+  border-left-width: 3px;
+  background: rgba(42, 20, 16, 0.94);
+  color: var(--mapv-ink);
+}
+
+.mapv-error-head {
+  color: var(--mapv-danger);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.mapv-error-msg {
+  margin-top: 4px;
+  color: var(--mapv-ink);
+  font-size: 10.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mapv-error-close {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--mapv-dim);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.mapv-error-close:hover {
+  color: var(--mapv-hot);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Narrow layouts                                                            */
+/* ------------------------------------------------------------------------ */
+@media (max-width: 760px) {
+  .mapv {
+    flex-direction: column;
+  }
+
+  .mapv-side {
+    flex: 0 0 auto;
+    max-height: 42%;
+    border-right: 0;
+    border-bottom: 1px solid var(--mapv-line);
+  }
+
+  .mapv-maps {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .mapv-map {
+    flex: 1 1 160px;
+  }
+}
